@@ -1,0 +1,217 @@
+:root {
+  --fg: var(--vscode-foreground);
+  --muted: var(--vscode-descriptionForeground);
+  --accent: var(--vscode-focusBorder);
+  --theme-accent: var(--vscode-activityBarBadge-background, var(--accent)); /* the theme's highlight colour */
+  --busy: var(--vscode-charts-blue, #3794ff);
+  --waiting: var(--vscode-charts-orange, #d18616);
+  --surface: color-mix(in srgb, var(--fg) 4%, transparent);
+  --hairline: color-mix(in srgb, var(--fg) 9%, transparent);
+  --ease: 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  margin: 0;
+  padding: 8px 10px 0;
+  color: var(--fg);
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+
+button {
+  border: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+
+/* Section header: chevron, title, count on the right (like Claude Code's session groups) */
+.section + .section { margin-top: 10px; }
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  /* 5px of hover highlight on each side, widened by 5px each way so the arrow and count stay aligned with the cards */
+  width: calc(100% + 10px);
+  min-height: 28px;
+  margin: 0 -5px 6px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  transition: background-color var(--ease);
+}
+.section-head:hover { background: var(--surface); }
+.chevron { flex: none; margin-left: -2px; rotate: 90deg; transition: rotate var(--ease); } /* trims the icon's blank left edge */
+.collapsed .chevron { rotate: 0deg; }
+.section-title { flex: 1; }
+.count {
+  min-width: 22px;
+  padding: 0 7px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 19px;
+  text-align: center;
+}
+.list { display: flex; flex-direction: column; gap: 8px; }
+.collapsed :is(.list, .search) { display: none; }
+.collapsed .section-head { margin-bottom: 0; }
+
+.search {
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 4px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+  font-size: 12px;
+}
+.search::placeholder { color: var(--vscode-input-placeholderForeground); }
+.search:focus { outline: 1px solid var(--accent); outline-offset: -1px; }
+
+/* Cards have a fixed height: status line, title and one body line (closed cards: title and body). */
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  height: 83px;
+  padding: 10px 12px 10px 14px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--hairline), 0 1px 2px rgb(0 0 0 / 6%);
+  transition: background-color var(--ease), box-shadow var(--ease), scale var(--ease);
+}
+.card:hover {
+  background: color-mix(in srgb, var(--fg) 7.5%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--fg) 14%, transparent), 0 2px 6px rgb(0 0 0 / 10%);
+}
+.card:active { scale: 0.985; }
+.card.waiting { background: color-mix(in srgb, var(--waiting) 8%, transparent); }
+/* The agent you are looking at: outlined in the theme's highlight colour with a soft glow */
+.card.viewing, .card.viewing:hover {
+  box-shadow: 0 0 0 1px var(--theme-accent), 0 0 10px color-mix(in srgb, var(--theme-accent) 45%, transparent);
+}
+
+/* Status rail on the left edge */
+.card.busy::before, .card.waiting::before, .card.completed::before {
+  content: "";
+  position: absolute;
+  inset: 10px auto 10px 0;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--status);
+}
+.busy { --status: var(--busy); }
+.waiting { --status: var(--waiting); }
+.completed { --status: var(--vscode-charts-green, #89d185); }
+
+.head { display: flex; align-items: center; gap: 6px; min-height: 16px; color: var(--muted); font-size: 11px; }
+.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--status, var(--muted)); }
+.state { color: var(--status, var(--muted)); font-weight: 600; }
+.pill {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--theme-accent);
+  color: var(--vscode-activityBarBadge-foreground, var(--vscode-badge-foreground));
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.title, .body { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.title { font-size: 13px; font-weight: 600; line-height: 18px; }
+.body { color: var(--muted); font-size: 12px; line-height: 17px; }
+.body.activity { color: var(--fg); }
+.tool { color: var(--status, var(--fg)); font-family: var(--vscode-editor-font-family); font-size: 11.5px; font-weight: 600; }
+
+/* Closed cards: quieter, with "x ago" turning into "Resume ↵" on hover */
+.card.closed { gap: 4px; height: 59px; padding-left: 12px; background: transparent; box-shadow: 0 0 0 1px var(--hairline); }
+.card.closed:hover { background: var(--surface); }
+.card.closed .title { flex: 1; font-weight: 500; }
+.top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.when, .resume { flex: none; color: var(--muted); font-size: 10.5px; }
+.resume { display: none; color: var(--accent); font-weight: 600; }
+.card.closed:is(:hover, :focus-visible) .when { display: none; }
+.card.closed:is(:hover, :focus-visible) .resume { display: inline; }
+
+.empty { padding: 18px 8px; color: var(--muted); line-height: 1.5; text-align: center; text-wrap: balance; }
+.empty strong { display: block; margin-bottom: 2px; color: var(--fg); }
+.more {
+  min-height: 32px;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--vscode-textLink-foreground);
+  font-size: 12px;
+  text-align: center;
+  transition: background-color var(--ease);
+}
+.more:hover { background: var(--surface); }
+
+/* Account and usage, pinned to the bottom */
+#root { flex: 1; display: flex; flex-direction: column; min-width: 0; padding-bottom: 14px; } /* min-width: 0 stops long titles widening the panel */
+/* Active Agents takes the free space, which keeps Closed Agents at the bottom, just above Account & Usage */
+/* (unless it's collapsed, which lets Closed Agents move up under its header) */
+.section:first-child:not(.collapsed) { flex: 1; }
+#root:has(.section:last-child.collapsed) { padding-bottom: 4px; }
+.account {
+  position: sticky;
+  bottom: 0;
+  margin: 0 -10px;
+  padding: 6px 10px 10px;
+  border-top: 1px solid var(--hairline);
+  background: var(--vscode-sideBar-background);
+  font-size: 12px;
+}
+.account .section-head { margin-bottom: 2px; }
+.account.collapsed { padding-bottom: 2px; }
+.account.collapsed .account-body { display: none; }
+.plan {
+  margin-left: auto;
+  padding: 0 7px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 19px;
+}
+.who { display: flex; align-items: baseline; gap: 6px; padding-left: 4px; }
+.name { font-weight: 600; }
+.email { padding-left: 4px; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.limit { --bar: var(--theme-accent); /* same colour as the Viewing tag */ margin-top: 10px; padding-left: 4px; }
+.limit.warn { --bar: var(--waiting); }
+.limit.high { --bar: var(--vscode-charts-red, #f14c4c); }
+.limit-row { display: flex; align-items: baseline; gap: 6px; }
+.limit-row > :first-child { flex: 1; }
+.percent { min-width: 30px; font-weight: 600; text-align: right; }
+.bar { display: block; width: 100%; height: 4px; margin-top: 5px; border: 0; appearance: none; }
+.bar::-webkit-progress-bar { border-radius: 2px; background: color-mix(in srgb, var(--fg) 10%, transparent); }
+.bar::-webkit-progress-value { border-radius: 2px; background: var(--bar); }
+.reset { color: var(--muted); font-size: 11px; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: 0ms !important; }
+}
+
+/* Which harness runs the agent, at the right of the status line */
+.harness { margin-left: auto; color: var(--muted); font-size: 10.5px; }
+.pill + .harness { margin-left: 6px; }
+.pill.quiet { background: color-mix(in srgb, var(--fg) 12%, transparent); color: var(--muted); font-weight: 500; }
+.account-card + .account-card { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline); }

@@ -1,0 +1,206 @@
+// Each harness adapter against fixture files in a throwaway home folder.
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+const { createClaude, projectDir } = require('../src/harnesses/claude');
+const { createCodex, jwtClaims, limitLabel } = require('../src/harnesses/codex');
+const { createPi, sessionDir } = require('../src/harnesses/pi');
+const { tempHome, id, jsonl, write } = require('./helpers');
+
+const NOW = Date.now();
+const DAY = 24 * 60 * 60 * 1000;
+const iso = (t) => new Date(t).toISOString();
+
+// ---- Claude Code ----
+
+const claudePrompt = (text) => ({ type: 'user', message: { role: 'user', content: text } });
+const claudeReply = (text) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } });
+const claudeTool = (name, input) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name, input }] } });
+
+test('claude: live sessions from the registry, with transcript details and background sessions', () => {
+  const home = tempHome();
+  const cwd = '/work/app';
+  write(path.join(home, '.claude/sessions/1.json'), JSON.stringify({ pid: process.pid, sessionId: id(1), cwd, status: 'busy', startedAt: 5, statusUpdatedAt: 9 }));
+  write(path.join(home, '.claude/sessions/2.json'), JSON.stringify({ pid: process.pid, sessionId: id(2), cwd, kind: 'bg', jobId: 'abcd1234', name: 'fork task' }));
+  write(path.join(home, '.claude/sessions/3.json'), JSON.stringify({ pid: process.pid, sessionId: '../etc', cwd }));
+  write(path.join(home, '.claude/sessions/4.json'), JSON.stringify({ pid: 2 ** 22 + 1, sessionId: id(4), cwd }));
+  write(path.join(home, '.claude/sessions/5.json'), '{ broken');
+  write(path.join(home, '.claude/sessions/6.json'), JSON.stringify({ pid: process.pid, sessionId: id(6), cwd, kind: 'bg', jobId: 'feedf00d', spare: true }));
+  write(path.join(home, '.claude/sessions/7.json'), JSON.stringify({ pid: process.pid, sessionId: id(7), cwd, entrypoint: 'claude-vscode' })); // panel opened, nothing sent
+  write(path.join(projectDir(home, cwd), `${id(1)}.jsonl`), jsonl(
+    claudePrompt('fix   the login'), { type: 'ai-title', aiTitle: 'Login fix' }, claudeTool('Bash', { description: 'Run tests' }), claudeReply('Running **now**.')));
+
+  const [one, two] = createClaude({ home }).live();
+  assert.deepEqual(one, {
+    sessionId: id(1), pid: process.pid, cwd, title: 'Login fix', status: 'busy', waitingFor: undefined, statusSince: 9, startedAt: 5, lastInputAt: 5,
+    tool: { name: 'Bash', detail: 'Run tests' }, reply: 'Running now.', background: false, attach: undefined, chatTab: false,
+  });
+  assert.equal(two.title, 'fork task');
+  assert.equal(two.attach, 'claude attach abcd1234');
+  assert.equal(createClaude({ home }).live().length, 2, 'bad, dead, spare and unused panel entries are skipped');
+  write(path.join(projectDir(home, cwd), `${id(7)}.jsonl`), jsonl(claudePrompt('hello')));
+  assert.equal(createClaude({ home }).live().find((s) => s.sessionId === id(7))?.chatTab, true, 'a chat panel session shows once used');
+});
+
+test('claude: transcript title precedence, stale tools, and closed sessions', () => {
+  const home = tempHome();
+  const cwd = '/work/app';
+  const file = write(path.join(projectDir(home, cwd), `${id(1)}.jsonl`), jsonl(claudeTool('Bash', { command: 'ls' }), claudePrompt('next task')), NOW - DAY);
+  write(path.join(projectDir(home, cwd), `${id(2)}.jsonl`), jsonl(claudePrompt('old')), NOW - 10 * DAY);
+  write(path.join(projectDir(home, cwd), `${id(3)}.jsonl`), jsonl({ type: 'summary' }), NOW);
+  write(path.join(projectDir(home, cwd), 'notes.jsonl'), jsonl(claudePrompt('not a session')), NOW);
+  const claude = createClaude({ home });
+
+  const closed = claude.closed({ roots: [cwd], since: NOW - 7 * DAY, live: new Set() });
+  assert.deepEqual(closed.map((s) => [s.title, s.resume]), [['next task', `claude --resume ${id(1)}`]]);
+  assert.deepEqual(claude.closed({ roots: [cwd], since: 0, live: new Set([id(1)]) }).map((s) => s.title), ['old'], 'running sessions are left out');
+
+  fs.appendFileSync(file, jsonl({ type: 'custom-title', customTitle: 'My name' }));
+  assert.equal(claude.closed({ roots: [cwd], since: 0, live: new Set() }).find((s) => s.sessionId === id(1)).title, 'My name');
+});
+
+test('claude: account and usage limits, and bad input', () => {
+  const home = tempHome();
+  write(path.join(home, '.claude.json'), JSON.stringify({
+    oauthAccount: { displayName: 'Ada', emailAddress: 'ada@example.com', organizationType: 'claude_max', organizationRateLimitTier: 'default_claude_max_20x' },
+    cachedUsageUtilization: { utilization: { limits: [
+      { kind: 'session', percent: 6, resets_at: '2030-01-01T00:00:00Z' },
+      { kind: 'weekly_scoped', percent: 0, scope: { model: { display_name: 'Fable' } } },
+      { kind: 'weekly_all', percent: 'n/a' },
+    ] } },
+  }));
+  assert.deepEqual(createClaude({ home }).account(), {
+    name: 'Ada', email: 'ada@example.com', plan: 'Max 20x',
+    limits: [{ label: 'Session', percent: 6, resetsAt: Date.parse('2030-01-01T00:00:00Z') }, { label: 'Weekly · Fable', percent: 0, resetsAt: undefined }],
+  });
+  assert.equal(createClaude({ home: tempHome() }).account(), undefined);
+});
+
+// ---- Codex ----
+
+const dayDir = (home, t) => {
+  const d = new Date(t);
+  return path.join(home, '.codex/sessions', String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'));
+};
+const meta = (n, cwd, t, extra = {}) => ({ timestamp: iso(t), type: 'session_meta', payload: { id: id(n), cwd, timestamp: iso(t), originator: 'codex-tui', base_instructions: { text: 'x'.repeat(100000) }, ...extra } });
+const event = (t, payload) => ({ timestamp: iso(t), type: 'event_msg', payload });
+const item = (t, payload) => ({ timestamp: iso(t), type: 'response_item', payload });
+
+function codexRollout(home, n, cwd, start, lines, mtime = start) {
+  return write(path.join(dayDir(home, start), `rollout-x-${id(n)}.jsonl`), jsonl(meta(n, cwd, start), ...lines), mtime);
+}
+
+test('codex: status from events, tool calls, reply, and stale tools', () => {
+  const home = tempHome();
+  const t = NOW - 60000;
+  const file = codexRollout(home, 1, '/work/app', t, [
+    event(t + 1, { type: 'user_message', message: 'add a  test' }),
+    event(t + 2, { type: 'task_started' }),
+    item(t + 3, { type: 'function_call', name: 'exec_command', arguments: JSON.stringify({ cmd: 'npm test' }) }),
+  ]);
+  const table = new Map([[50, { ppid: 1, startedAt: t - 1000, command: 'codex', args: 'codex' }], [51, { ppid: 1, startedAt: t, command: 'codex', args: '/x/app-server-daemon/codex app-server' }]]);
+  const cwds = new Map([[50, '/work/app'], [51, '/work/app']]);
+  const codex = createCodex({ home });
+
+  let [agent] = codex.live({ table, cwds });
+  assert.equal(codex.live({ table, cwds }).length, 1, 'the app-server is not an agent');
+  assert.deepEqual([agent.sessionId, agent.title, agent.status, agent.tool], [id(1), 'add a test', 'busy', { name: 'exec_command', detail: 'npm test' }]);
+
+  fs.appendFileSync(file, jsonl(event(t + 4, { type: 'exec_approval_request', command: ['rm', 'x'] })));
+  [agent] = codex.live({ table, cwds });
+  assert.deepEqual([agent.status, agent.waitingFor], ['waiting', 'Approve command']);
+
+  fs.appendFileSync(file, jsonl(item(t + 5, { type: 'function_call_output' }), event(t + 6, { type: 'agent_message', message: 'All green.' }), event(t + 7, { type: 'task_complete' })));
+  [agent] = codex.live({ table, cwds });
+  assert.deepEqual([agent.status, agent.reply, agent.statusSince, agent.lastInputAt], ['idle', 'All green.', t + 7, t + 1]);
+
+  fs.appendFileSync(file, jsonl(event(t + 8, { type: 'user_message', message: 'next' })));
+  assert.equal(codex.live({ table, cwds })[0].tool, undefined, 'a tool from before the latest prompt is stale');
+});
+
+test('codex: matching processes to rollouts, titles from the index, subagents and closed sessions', () => {
+  const home = tempHome();
+  const t = NOW - 60000;
+  codexRollout(home, 1, '/work/app', t - 5 * 60000, [event(t, { type: 'user_message', message: 'older run' })]); // before the process started
+  codexRollout(home, 2, '/work/app', t + 1000, [event(t, { type: 'user_message', message: 'current run' })]);
+  write(path.join(dayDir(home, t), `rollout-x-${id(3)}.jsonl`), jsonl({ ...meta(3, '/work/app', t + 2000, { source: { subagent: {} } }) }, event(t, { type: 'user_message', message: 'sub' })), t + 2000);
+  write(path.join(home, '.codex/session_index.jsonl'), jsonl({ id: id(2), thread_name: 'Named thread' }, 'garbage'));
+  const table = new Map([[50, { ppid: 1, startedAt: t, command: 'codex', args: 'codex' }], [60, { ppid: 1, startedAt: t, command: 'codex', args: 'codex' }]]);
+  const codex = createCodex({ home });
+
+  const [agent, fresh] = codex.live({ table, cwds: new Map([[50, '/work/app'], [60, '/work/other']]) });
+  assert.deepEqual([agent.sessionId, agent.title], [id(2), 'Named thread']);
+  assert.deepEqual([fresh.sessionId, fresh.title, fresh.status], [undefined, 'New session', 'idle'], 'no transcript until the first prompt');
+
+  const closed = codex.closed({ roots: ['/work/app'], since: NOW - 7 * DAY, live: new Set([id(2)]) });
+  assert.deepEqual(closed.map((s) => [s.title, s.resume]), [['older run', `codex resume ${id(1)}`]], 'subagents and running sessions are left out');
+});
+
+test('codex: prompts and replies recorded as messages (Codex 0.163), skipping injected context', () => {
+  const home = tempHome();
+  const t = NOW - 60000;
+  const msg = (role, type, text) => item(t, { type: 'message', role, content: [{ type, text }] });
+  codexRollout(home, 1, '/work/app', t - DAY, [
+    msg('developer', 'input_text', '<permissions instructions>...'),
+    msg('user', 'input_text', '<environment_context>\n  <cwd>/work/app</cwd>'),
+    msg('user', 'input_text', 'why is the model reset?'),
+    item(t, { type: 'custom_tool_call', name: 'apply_patch', input: '*** Begin Patch\n...' }),
+    msg('assistant', 'output_text', 'A workspace policy sets it.'),
+  ], t - DAY);
+  const [session] = createCodex({ home }).closed({ roots: ['/work/app'], since: NOW - 7 * DAY, live: new Set() });
+  assert.deepEqual([session.title, session.reply], ['why is the model reset?', 'A workspace policy sets it.']);
+});
+
+test('codex: account from the ID token, rate limits, and bad input', () => {
+  const home = tempHome();
+  const claims = { name: 'Ada', email: 'ada@example.com', 'https://api.openai.com/auth': { chatgpt_plan_type: 'plus' } };
+  const token = ['e30', Buffer.from(JSON.stringify(claims)).toString('base64url'), 'sig'].join('.');
+  write(path.join(home, '.codex/auth.json'), JSON.stringify({ tokens: { id_token: token, access_token: 'secret' } }));
+  codexRollout(home, 1, '/w', NOW - 1000, [event(NOW, { type: 'token_count', rate_limits: {
+    primary: { used_percent: 42, window_minutes: 300, resets_at: 2000000000 }, secondary: { used_percent: 7, window_minutes: 10080 } } })]);
+
+  assert.deepEqual(createCodex({ home }).account(), {
+    name: 'Ada', email: 'ada@example.com', plan: 'Plus',
+    limits: [{ label: '5h', percent: 42, resetsAt: 2000000000000 }, { label: 'Weekly', percent: 7, resetsAt: undefined }],
+  });
+  assert.equal(jwtClaims('not-a-jwt'), undefined);
+  assert.equal(limitLabel(undefined), 'Limit');
+  write(path.join(home, '.codex/auth.json'), '{"auth_mode":"apikey"}');
+  assert.equal(createCodex({ home }).account(), undefined, 'API-key logins have no account to show');
+});
+
+// ---- pi ----
+
+const piMessage = (t, message) => ({ type: 'message', timestamp: iso(t), message });
+
+test('pi: folder naming, status, tools, names, live matching and closed sessions', () => {
+  assert.equal(path.basename(sessionDir('/h', '/Users/a.b/Work/credstash-v3')), '--Users-a.b-Work-credstash-v3--');
+  const home = tempHome();
+  const cwd = '/work/app';
+  const t = NOW - 60000;
+  const dir = sessionDir(home, cwd);
+  const file = write(path.join(dir, 'b.jsonl'), jsonl(
+    { type: 'session', version: 3, id: id(2), cwd },
+    piMessage(t + 1, { role: 'user', content: [{ type: 'text', text: 'write docs' }] }),
+    piMessage(t + 2, { role: 'assistant', content: [{ type: 'toolCall', name: 'bash', arguments: { command: 'ls' } }], stopReason: 'toolUse' }),
+  ), t + 2);
+  write(path.join(dir, 'a.jsonl'), jsonl({ type: 'session', id: id(1), cwd }, piMessage(t, { role: 'user', content: 'old task' })), t - 60000);
+  const table = new Map([[70, { ppid: 1, startedAt: t, command: 'pi', args: 'pi' }]]);
+  const cwds = new Map([[70, cwd]]);
+  const pi = createPi({ home });
+
+  let [agent] = pi.live({ table, cwds });
+  assert.deepEqual([agent.sessionId, agent.title, agent.status, agent.tool, agent.lastInputAt], [id(2), 'write docs', 'busy', { name: 'bash', detail: 'ls' }, t + 1]);
+
+  fs.appendFileSync(file, jsonl(
+    piMessage(t + 3, { role: 'toolResult', toolName: 'bash', content: [] }),
+    piMessage(t + 4, { role: 'assistant', content: [{ type: 'text', text: 'Docs **written**.' }], stopReason: 'stop' }),
+    { type: 'session_info', name: 'Docs pass' }, 'not json'));
+  [agent] = pi.live({ table, cwds });
+  assert.deepEqual([agent.title, agent.status, agent.reply, agent.statusSince], ['Docs pass', 'idle', 'Docs written.', t + 4]);
+
+  const closed = pi.closed({ roots: [cwd], since: NOW - 7 * DAY, live: new Set([id(2)]) });
+  assert.deepEqual(closed.map((s) => [s.title, s.resume]), [['old task', `pi --session ${id(1)}`]]);
+  assert.equal(pi.account(), undefined);
+});
