@@ -87,6 +87,8 @@ class AgentsView {
     if (!this.view?.visible) return;
     const config = this.getConfig();
     const harnesses = HARNESSES.filter((h) => config.harnesses[h.id]);
+    // Harnesses that refresh their limits on request (Claude) show the new numbers once they have them.
+    if (config.accounts) for (const h of harnesses) h.refreshAccount?.()?.then((fetched) => fetched && this.refresh());
     const { table, sessions } = await liveSessions(harnesses);
 
     const active = this.#completion.apply(await this.#activeAgents(table, sessions, config.sources));

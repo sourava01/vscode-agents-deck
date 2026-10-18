@@ -58,11 +58,11 @@ Open the panel from the sparkles icon in the Activity Bar.
 
 ## How it works
 
-The extension only reads files the harnesses already keep on your machine. It makes no network requests and changes nothing.
+The extension reads files the harnesses already keep on your machine. Its one exception: every 5 minutes, while the panel is open, it runs `claude` in SDK mode to ask for your Claude usage limits (no model call, no MCP servers, no saved session), which Claude Code then saves to `~/.claude.json`. It makes no network requests of its own.
 
 | Harness | Running sessions | Transcripts and titles | Account and limits |
 | --- | --- | --- | --- |
-| Claude Code | `~/.claude/sessions/` | `~/.claude/projects/` | `~/.claude.json`, as last fetched by Claude Code |
+| Claude Code | `~/.claude/sessions/` | `~/.claude/projects/` | `~/.claude.json`, refreshed every 5 minutes as above |
 | Codex CLI | `codex` processes, matched to their transcript by folder and start time | `~/.codex/sessions/`, `~/.codex/session_index.jsonl` | email and plan from the ID token in `~/.codex/auth.json` (no other token is read); limits from the latest session |
 | pi | `pi` processes, matched the same way | `~/.pi/agent/sessions/` | none: pi uses your own provider keys |
 

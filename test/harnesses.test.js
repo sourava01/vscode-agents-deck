@@ -99,6 +99,40 @@ test('claude: account and usage limits, and bad input', () => {
   assert.equal(createClaude({ home: tempHome() }).account(), undefined);
 });
 
+test('claude: refreshAccount runs claude to fetch usage at most every 5 minutes, and hides that process', async () => {
+  const home = tempHome();
+  const log = path.join(home, 'calls');
+  // A stand-in for `claude`: records its arguments, registers as a session, and answers the get_usage request.
+  const fake = write(path.join(home, 'fake-claude'), `#!/usr/bin/env node
+const fs = require('fs');
+fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n');
+fs.writeFileSync(${JSON.stringify(path.join(home, '.claude/sessions/helper.json'))}, JSON.stringify({ pid: process.pid, sessionId: '${id(9)}', cwd: '/tmp' }));
+process.stdin.once('data', (line) => {
+  const { request_id } = JSON.parse(line);
+  setTimeout(() => console.log(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id } })), 1000);
+});
+process.stdin.on('end', () => process.exit(0));
+`);
+  fs.chmodSync(fake, 0o755);
+  fs.mkdirSync(path.join(home, '.claude/sessions'), { recursive: true });
+  write(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: {}, cachedUsageUtilization: { fetchedAtMs: NOW - 10 * 60 * 1000 } }));
+  const claude = createClaude({ home, claudeCommands: [path.join(home, 'missing'), fake] });
+
+  const fetching = claude.refreshAccount();
+  assert.equal(claude.refreshAccount(), undefined, 'one fetch at a time');
+  while (!fs.existsSync(path.join(home, '.claude/sessions/helper.json'))) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(claude.live(), [], 'the helper is not an agent');
+  assert.equal(await fetching, true, 'falls back past a missing command');
+  assert.match(fs.readFileSync(log, 'utf8'), /--no-session-persistence/);
+  assert.equal(claude.refreshAccount(), undefined, 'tried less than 5 minutes ago');
+
+  write(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: {}, cachedUsageUtilization: { fetchedAtMs: NOW } }));
+  assert.equal(createClaude({ home, claudeCommands: [fake] }).refreshAccount(), undefined, 'fresh enough already');
+  write(path.join(home, '.claude.json'), JSON.stringify({}));
+  assert.equal(createClaude({ home, claudeCommands: [fake] }).refreshAccount(), undefined, 'not signed in to a subscription');
+  assert.equal(await createClaude({ home: tempHome(), claudeCommands: [] }).refreshAccount(), undefined);
+});
+
 // ---- Codex ----
 
 const dayDir = (home, t) => {
