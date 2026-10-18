@@ -98,6 +98,8 @@ test('claude: slash and shell commands title as typed; messages Claude Code adds
     claudePrompt('<task-notification>\n<task-id>1</task-id></task-notification>'),
     claudePrompt('<system-reminder>note</system-reminder>')), 'real prompt');
   assert.equal(titleOf(6, { ...claudePrompt('caveat'), isMeta: true }), undefined, 'a session with only added messages is unused');
+  const prompts = claude.closed({ roots: [cwd], since: 0, live: new Set() }).find((s) => s.sessionId === id(5)).prompts;
+  assert.equal(prompts, 1, 'only typed messages count');
 });
 
 test('claude: account and usage limits, and bad input', () => {
@@ -253,7 +255,7 @@ test('codex: prompts and replies recorded as messages (Codex 0.163), skipping in
     msg('assistant', 'output_text', 'A workspace policy sets it.'),
   ], t - DAY);
   const [session] = createCodex({ home }).closed({ roots: ['/work/app'], since: NOW - 7 * DAY, live: new Set() });
-  assert.deepEqual([session.title, session.reply], ['why is the model reset?', 'A workspace policy sets it.']);
+  assert.deepEqual([session.title, session.reply, session.prompts], ['why is the model reset?', 'A workspace policy sets it.', 1], 'injected context is not a message from you');
 });
 
 test('codex: account from the ID token, rate limits, and bad input', () => {
@@ -323,6 +325,6 @@ test('pi: folder naming, status, tools, names, live matching and closed sessions
   assert.deepEqual([agent.title, agent.status, agent.reply, agent.statusSince], ['Docs pass', 'idle', 'Docs written.', t + 4]);
 
   const closed = pi.closed({ roots: [cwd], since: NOW - 7 * DAY, live: new Set([id(2)]) });
-  assert.deepEqual(closed.map((s) => [s.title, s.resume]), [['old task', `pi --session ${id(1)}`]]);
+  assert.deepEqual(closed.map((s) => [s.title, s.resume, s.prompts]), [['old task', `pi --session ${id(1)}`, 1]]);
   assert.equal(pi.account(), undefined);
 });

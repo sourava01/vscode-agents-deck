@@ -40,6 +40,7 @@ Extension chats are included by default, because they are the same kind of agent
 | `agentsDeck.harnesses.claude` / `.codex` / `.pi` | `true` | Show that harness's sessions and account. |
 | `agentsDeck.sources.terminal` / `.extension` / `.background` | `true` | Show sessions from that source (see above). |
 | `agentsDeck.closedSessions.maxAgeDays` | `7` | Days of finished sessions to list. `0` hides Closed Agents. |
+| `agentsDeck.closedSessions.hideShort` | `true` | Hide finished sessions in which you sent fewer than 3 messages. |
 | `agentsDeck.accounts.enabled` | `true` | Show the Accounts section. |
 | `agentsDeck.refreshSeconds` | `10` | How often the panel re-reads agent status (2 to 60). The refresh button in the panel's title bar re-reads everything at once, including usage limits. |
 

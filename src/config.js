@@ -12,6 +12,7 @@ function readConfig(get) {
     harnesses: Object.fromEntries(HARNESSES.map((id) => [id, bool(get(`harnesses.${id}`), true)])),
     sources: Object.fromEntries(SOURCES.map((id) => [id, bool(get(`sources.${id}`), true)])),
     closedMaxAgeDays: clamp(get('closedSessions.maxAgeDays'), 0, 365, 7), // 0 hides Closed Agents
+    closedHideShort: bool(get('closedSessions.hideShort'), true),
     accounts: bool(get('accounts.enabled'), true),
     refreshMs: clamp(get('refreshSeconds'), 2, 60, 10) * 1000,
   };

@@ -16,6 +16,7 @@ const { createPi } = require('./harnesses/pi');
 
 const PAGE_SIZE = 25;
 const CLOSED_REFRESH_MS = 30000;
+const MIN_PROMPTS = 3; // closed sessions with fewer messages from you are hidden, unless turned off in settings
 const MOVED_MARK_MS = 10 * 60 * 1000; // how long a session that just closed or resumed is marked
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -106,6 +107,7 @@ class AgentsView {
       const live = new Set(sessions.map((s) => s.sessionId).filter(Boolean));
       const since = Date.now() - config.closedMaxAgeDays * DAY_MS;
       this.#closed = searchClosed(harnesses.flatMap((h) => h.closed({ roots: roots(), since, live })
+        .filter((s) => !config.closedHideShort || !(s.prompts < MIN_PROMPTS))
         .map((s) => ({ ...s, harness: h.id, harnessLabel: h.label, key: `${h.id}:${s.sessionId}` }))), this.#query);
       this.#closedAt = Date.now();
     }

@@ -64,6 +64,7 @@ test('readConfig: defaults, and bad values fall back or are clamped', () => {
     harnesses: { claude: true, codex: true, pi: true },
     sources: { terminal: true, extension: true, background: true },
     closedMaxAgeDays: 7,
+    closedHideShort: true,
     accounts: true,
     refreshMs: 10000,
   });

@@ -40,6 +40,7 @@ function scan(line, state) {
       return;
     }
     if (p.type === 'user_message') {
+      state.promptEvents = (state.promptEvents ?? 0) + 1;
       Object.assign(state, { promptSeq: state.seq, promptAt: at });
       state.firstPrompt ??= oneLine(p.message).slice(0, 80);
     } else if (p.type === 'agent_message') {
@@ -56,6 +57,7 @@ function scan(line, state) {
   if (p.type === 'message' && p.role === 'user') {
     const text = textOf(p.content, 'input_text').trim();
     if (text && !text.startsWith('<')) {
+      state.promptItems = (state.promptItems ?? 0) + 1;
       Object.assign(state, { promptSeq: state.seq, promptAt: timeOf(record.timestamp) });
       state.firstPrompt ??= oneLine(text).slice(0, 80);
     }
@@ -72,6 +74,8 @@ const summarize = (s) => ({
   used: s.firstPrompt !== undefined,
   promptAt: s.promptAt,
   firstPrompt: s.firstPrompt,
+  // How many messages you sent. Codex records each as an event and as a message; older versions only as a message.
+  prompts: Math.max(s.promptEvents ?? 0, s.promptItems ?? 0),
   status: s.status ?? 'idle',
   waitingFor: s.status === 'waiting' ? s.waitingFor : undefined,
   statusAt: s.statusAt,
@@ -224,7 +228,7 @@ function createCodex({ home }) {
       return rollouts(since).flatMap((r) => {
         if (live.has(r.id) || !roots.includes(r.cwd)) return [];
         const info = transcripts.read(r.file);
-        return info?.used ? [{ sessionId: r.id, cwd: r.cwd, title: titleOf(r.id, info), reply: info.reply, lastActivity: r.mtime, resume: `codex resume ${r.id}` }] : [];
+        return info?.used ? [{ sessionId: r.id, cwd: r.cwd, title: titleOf(r.id, info), reply: info.reply, prompts: info.prompts, lastActivity: r.mtime, resume: `codex resume ${r.id}` }] : [];
       });
     },
 

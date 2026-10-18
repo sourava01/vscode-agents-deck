@@ -44,7 +44,7 @@ function sessionIdOf(line) {
   return UUID.test(id) ? id : undefined;
 }
 
-function summarize({ found: { customTitle, aiTitle, prompt, tool, reply }, sessionIds }) {
+function summarize({ prompts, found: { customTitle, aiTitle, prompt, tool, reply }, sessionIds }) {
   const record = (match) => (match ? parseJson(match.line) : undefined);
   const lastBlock = (match, type) => {
     const content = record(match)?.message?.content;
@@ -55,6 +55,7 @@ function summarize({ found: { customTitle, aiTitle, prompt, tool, reply }, sessi
     promptAt: Date.parse(record(prompt)?.timestamp) || undefined,
     title: oneLine(record(customTitle)?.customTitle) || oneLine(record(aiTitle)?.aiTitle) || promptText(record(prompt)?.message?.content).slice(0, 80),
     used: Boolean(prompt || customTitle || aiTitle),
+    prompts, // how many messages you sent
     // A tool call from before your latest prompt belongs to an earlier turn.
     tool: toolBlock && !(prompt?.seq > tool.seq) ? { name: String(toolBlock.name), detail: toolDetail(toolBlock.input) } : undefined,
     reply: plainText(lastBlock(reply, 'text')?.text).slice(0, 300),
@@ -155,13 +156,15 @@ function createClaude({ home, claudeCommands = ['claude', path.join(home, '.loca
   let usage; // Claude Code's latest get_usage answer, and when it came: { answer, at }
 
   const transcripts = new JsonlFollower({
-    initialState: () => ({ seq: 0, found: {}, sessionIds: new Set() }),
+    initialState: () => ({ seq: 0, prompts: 0, found: {}, sessionIds: new Set() }),
     scan(line, state) {
       state.seq++;
       const id = sessionIdOf(line);
       if (id) state.sessionIds.add(id);
       for (const [kind, matches] of Object.entries(LINE_KINDS)) {
-        if (matches(line)) state.found[kind] = { line, seq: state.seq };
+        if (!matches(line)) continue;
+        state.found[kind] = { line, seq: state.seq };
+        if (kind === 'prompt') state.prompts++;
       }
     },
     summarize,
@@ -219,7 +222,7 @@ function createClaude({ home, claudeCommands = ['claude', path.join(home, '.loca
           const lastActivity = mtimeOf(path.join(dir, name));
           if (!(lastActivity >= since)) return [];
           const info = transcript(root, sessionId);
-          return info.used ? [{ sessionId, cwd: root, title: info.title, reply: info.reply, lastActivity, resume: `claude --resume ${sessionId}` }] : [];
+          return info.used ? [{ sessionId, cwd: root, title: info.title, reply: info.reply, prompts: info.prompts, lastActivity, resume: `claude --resume ${sessionId}` }] : [];
         });
       });
     },

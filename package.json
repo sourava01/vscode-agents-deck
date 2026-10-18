@@ -109,6 +109,12 @@
           "order": 7,
           "description": "How many days of finished sessions Closed Agents lists. 0 hides the section."
         },
+        "agentsDeck.closedSessions.hideShort": {
+          "type": "boolean",
+          "default": true,
+          "order": 7,
+          "description": "Hide finished sessions in which you sent fewer than 3 messages."
+        },
         "agentsDeck.accounts.enabled": {
           "type": "boolean",
           "default": true,
