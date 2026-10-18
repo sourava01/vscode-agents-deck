@@ -15,7 +15,8 @@
 body {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden; /* Active and Closed Agents scroll on their own */
   margin: 0;
   padding: 8px 10px 0;
   color: var(--fg);
@@ -66,7 +67,9 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   line-height: 19px;
   text-align: center;
 }
-.list { display: flex; flex-direction: column; gap: 8px; }
+.section { display: flex; flex-direction: column; min-height: 0; }
+/* Each list scrolls on its own; the 1px padding keeps the cards' outlines from being clipped */
+.list { display: flex; flex-direction: column; gap: 8px; min-height: 0; margin: 0 -1px; padding: 1px 1px 2px; overflow-y: auto; }
 .collapsed :is(.list, .search) { display: none; }
 .collapsed .section-head { margin-bottom: 0; }
 
@@ -87,6 +90,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 /* Cards have a fixed height: status line, title and one body line (closed cards: title and body). */
 .card {
   position: relative;
+  flex: none; /* keep the fixed height inside a scrolling list */
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -166,14 +170,17 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .more:hover { background: var(--surface); }
 
 /* Account and usage, pinned to the bottom */
-#root { flex: 1; display: flex; flex-direction: column; min-width: 0; padding-bottom: 14px; } /* min-width: 0 stops long titles widening the panel */
-/* Active Agents takes the free space, which keeps Closed Agents at the bottom, just above Account & Usage */
-/* (unless it's collapsed, which lets Closed Agents move up under its header) */
-.section:first-child:not(.collapsed) { flex: 1; }
+#root { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-bottom: 10px; } /* min-width: 0 stops long titles widening the panel */
+/* Active Agents takes the free space and Closed Agents a fixed 45% of it, so Closed Agents stays in the same place
+   however many agents run. A collapsed section shrinks to its header and the other one takes the space. */
+.section:first-child:not(.collapsed) { flex: 1 1 0; }
+.section:last-child:not(.collapsed) { flex: 0 0 45%; }
+#root:has(.section:first-child.collapsed) .section:last-child:not(.collapsed) { flex: 1 1 0; }
 #root:has(.section:last-child.collapsed) { padding-bottom: 4px; }
 .account {
-  position: sticky;
-  bottom: 0;
+  flex: none;
+  max-height: 45vh;
+  overflow-y: auto;
   margin: 0 -10px;
   padding: 6px 10px 10px;
   border-top: 1px solid var(--hairline);

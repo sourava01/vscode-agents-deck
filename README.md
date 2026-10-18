@@ -17,7 +17,7 @@ Agents are listed in that order of status, and within a status by when it last c
 
 The agent you are looking at is outlined in your theme's highlight colour and marked **Viewing**. Click any agent to switch to its terminal or chat tab, or to attach to a background session.
 
-**Closed Agents** lists this project's recent sessions that are no longer running. Search them by title or reply, and click one to resume it in a new terminal (`claude --resume`, `codex resume` or `pi --session`).
+**Closed Agents** lists this project's recent sessions that are no longer running, leaving out ones in which you sent fewer than 3 messages. Search them by title or reply, and click one to resume it in a new terminal (`claude --resume`, `codex resume` or `pi --session`). Closed Agents keeps a fixed part of the panel, and each section scrolls on its own.
 
 **Accounts** shows each subscription (Claude, Codex) with its plan and usage limits. Only the limits a plan has are shown (a weekly Fable limit only if your plan has one), plus usage credits when they're turned on. API-key logins, and plans with no limits or paid with credits, show a note instead. Limits more than an hour old are greyed out with the time they were last updated.
 
