@@ -8,12 +8,26 @@ const { isAlive } = require('../processes');
 // character replaced by "-".
 const projectDir = (home, cwd) => path.join(home, '.claude', 'projects', cwd.replace(/[^a-zA-Z0-9]/g, '-'));
 
+const NOT_TYPED = /"message":\{"role":"user","content":"<(local-command-[a-z]+|bash-std(out|err)|task-notification|system-reminder)>/;
+
+/** A typed prompt as you typed it: Claude Code records a slash command and a `!` shell command as XML-like tags. */
+function promptText(content) {
+  const text = oneLine(content);
+  if (!/^<(command-(name|message|args)|bash-input)>/.test(text)) return text;
+  const tag = (name) => new RegExp(`<${name}>(.*?)</${name}>`).exec(text)?.[1];
+  const bash = tag('bash-input');
+  if (bash !== undefined) return oneLine(`! ${bash}`);
+  const command = tag('command-name') ?? `/${tag('command-message') ?? ''}`;
+  return oneLine(`${command} ${tag('command-args') ?? ''}`);
+}
+
 // The transcript lines that matter, found with a cheap substring test. Only the latest of each kind is parsed.
 const LINE_KINDS = {
   customTitle: (line) => line.includes('"type":"custom-title"'),
   aiTitle: (line) => line.includes('"type":"ai-title"'),
-  // A prompt you typed: a user message whose content is a plain string (tool results are arrays).
-  prompt: (line) => line.includes('"message":{"role":"user","content":"'),
+  // A prompt you typed: a user message whose content is a plain string (tool results are arrays). Messages Claude Code
+  // adds itself are left out: ones marked isMeta, and command output, task notifications and reminders.
+  prompt: (line) => line.includes('"message":{"role":"user","content":"') && !line.includes('"isMeta":true') && !NOT_TYPED.test(line),
   tool: (line) => line.includes('"type":"assistant"') && line.includes('"type":"tool_use"'),
   reply: (line) => line.includes('"type":"assistant"') && line.includes('"type":"text"'),
 };
@@ -27,7 +41,7 @@ function summarize({ found: { customTitle, aiTitle, prompt, tool, reply } }) {
   const toolBlock = lastBlock(tool, 'tool_use');
   return {
     promptAt: Date.parse(record(prompt)?.timestamp) || undefined,
-    title: oneLine(record(customTitle)?.customTitle) || oneLine(record(aiTitle)?.aiTitle) || oneLine(record(prompt)?.message?.content).slice(0, 80),
+    title: oneLine(record(customTitle)?.customTitle) || oneLine(record(aiTitle)?.aiTitle) || promptText(record(prompt)?.message?.content).slice(0, 80),
     used: Boolean(prompt || customTitle || aiTitle),
     // A tool call from before your latest prompt belongs to an earlier turn.
     tool: toolBlock && !(prompt?.seq > tool.seq) ? { name: String(toolBlock.name), detail: toolDetail(toolBlock.input) } : undefined,

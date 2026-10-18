@@ -60,6 +60,28 @@ test('claude: transcript title precedence, stale tools, and closed sessions', ()
   assert.equal(claude.closed({ roots: [cwd], since: 0, live: new Set() }).find((s) => s.sessionId === id(1)).title, 'My name');
 });
 
+test('claude: slash and shell commands title as typed; messages Claude Code adds are not prompts', () => {
+  const home = tempHome();
+  const cwd = '/work/app';
+  const claude = createClaude({ home });
+  const titleOf = (n, ...records) => {
+    write(path.join(projectDir(home, cwd), `${id(n)}.jsonl`), jsonl(...records), NOW);
+    return claude.closed({ roots: [cwd], since: 0, live: new Set() }).find((s) => s.sessionId === id(n))?.title;
+  };
+  assert.equal(titleOf(1, claudePrompt('<command-message>doctor</command-message>\n<command-name>/doctor</command-name>\n<command-args></command-args>')), '/doctor');
+  assert.equal(titleOf(2, claudePrompt('<command-name>/review</command-name>\n  <command-message>review</command-message>\n  <command-args>PR 12</command-args>')), '/review PR 12');
+  assert.equal(titleOf(3, claudePrompt('<bash-input>git status</bash-input>')), '! git status');
+  assert.equal(titleOf(4, claudePrompt('<b>bold</b> is not a command')), '<b>bold</b> is not a command');
+  assert.equal(titleOf(5,
+    claudePrompt('real prompt'),
+    { ...claudePrompt('Another Claude session sent a message: hi'), isMeta: true },
+    claudePrompt('<local-command-stdout>done</local-command-stdout>'),
+    claudePrompt('<bash-stdout>ok</bash-stdout>'),
+    claudePrompt('<task-notification>\n<task-id>1</task-id></task-notification>'),
+    claudePrompt('<system-reminder>note</system-reminder>')), 'real prompt');
+  assert.equal(titleOf(6, { ...claudePrompt('caveat'), isMeta: true }), undefined, 'a session with only added messages is unused');
+});
+
 test('claude: account and usage limits, and bad input', () => {
   const home = tempHome();
   write(path.join(home, '.claude.json'), JSON.stringify({
