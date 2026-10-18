@@ -143,15 +143,13 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .tool { color: var(--status, var(--fg)); font-family: var(--vscode-editor-font-family); font-size: 11.5px; font-weight: 600; }
 
 /* Closed cards: quieter, with "x ago" turning into "Resume ↵" on hover */
-.card.closed { gap: 4px; height: 59px; padding-left: 12px; background: transparent; box-shadow: 0 0 0 1px var(--hairline); }
+.card.closed { background: transparent; box-shadow: 0 0 0 1px var(--hairline); }
 .card.closed:hover { background: var(--surface); }
-.card.just-closed::before { content: ""; position: absolute; inset: 8px auto 8px 0; width: 3px; border-radius: 0 3px 3px 0; background: var(--theme-accent); }
-.card.closed .pill { flex: none; margin-left: 0; }
-.card.closed .title { flex: 1; font-weight: 500; }
-.top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.when, .resume { flex: none; color: var(--muted); font-size: 10.5px; }
-.resume { display: none; color: var(--accent); font-weight: 600; }
-.card.closed:is(:hover, :focus-visible) .when { display: none; }
+.card.closed .title { font-weight: 500; }
+.card.just-closed::before { content: ""; position: absolute; inset: 10px auto 10px 0; width: 3px; border-radius: 0 3px 3px 0; background: var(--theme-accent); }
+.resume { display: none; margin-left: auto; color: var(--accent); font-size: 10.5px; font-weight: 600; }
+.pill ~ .resume { margin-left: 6px; }
+.card.closed:is(:hover, :focus-visible) .harness { display: none; }
 .card.closed:is(:hover, :focus-visible) .resume { display: inline; }
 
 .empty { padding: 18px 8px; color: var(--muted); line-height: 1.5; text-align: center; text-wrap: balance; }

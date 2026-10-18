@@ -62,13 +62,16 @@
         + `<span class="harness">${esc(a.harnessLabel)}</span>`
         + `</div><div class="title">${esc(a.title)}</div>${body(a)}`,
     }),
+    // Laid out like an active card: when it was last active and the harness on the status line, which turns into
+    // "Resume ↵" on hover.
     closed: (a, now) => ({
       cls: `card closed${a.justClosed ? ' just-closed' : ''}`,
       label: `${a.title}, ${a.justClosed ? 'just closed, ' : ''}resume`,
-      html: `<div class="top"><div class="title">${esc(a.title)}</div>`
+      html: `<div class="head"><span class="dot"></span><span class="state">Closed</span>`
+        + `<span class="since" title="${esc(new Date(a.lastActivity).toLocaleString())}">· ${ago(a.lastActivity, now)}</span>`
         + (a.justClosed ? '<span class="pill">Just closed</span>' : '')
-        + `<span class="when" title="${esc(new Date(a.lastActivity).toLocaleString())}">${esc(a.harnessLabel)} · ${ago(a.lastActivity, now)} ago</span>`
-        + '<span class="resume">Resume ↵</span></div>'
+        + `<span class="harness">${esc(a.harnessLabel)}</span><span class="resume">Resume ↵</span>`
+        + `</div><div class="title">${esc(a.title)}</div>`
         + (a.reply ? `<div class="body output">${esc(a.reply)}</div>` : ''),
     }),
   };
