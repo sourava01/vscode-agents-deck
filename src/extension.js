@@ -77,18 +77,21 @@ class AgentsView {
     view.onDidChangeVisibility(() => this.refresh(true));
   }
 
-  /** Re-reads active agents; closed sessions only every 30 seconds, unless `includeClosed` or an agent started or stopped. */
-  refresh(includeClosed = false) {
-    this.#refreshing = this.#refreshing.then(() => this.#refresh(includeClosed)).catch(() => {});
+  /**
+   * Re-reads active agents; closed sessions only every 30 seconds, unless `includeClosed` or an agent started or
+   * stopped; and usage limits only every 5 minutes, unless `refetchUsage`.
+   */
+  refresh(includeClosed = false, refetchUsage = false) {
+    this.#refreshing = this.#refreshing.then(() => this.#refresh(includeClosed, refetchUsage)).catch(() => {});
     return this.#refreshing;
   }
 
-  async #refresh(includeClosed) {
+  async #refresh(includeClosed, refetchUsage) {
     if (!this.view?.visible) return;
     const config = this.getConfig();
     const harnesses = HARNESSES.filter((h) => config.harnesses[h.id]);
     // Harnesses that refresh their limits on request (Claude) show the new numbers once they have them.
-    if (config.accounts) for (const h of harnesses) h.refreshAccount?.()?.then((fetched) => fetched && this.refresh());
+    if (config.accounts) for (const h of harnesses) h.refreshAccount?.(refetchUsage)?.then((fetched) => fetched && this.refresh());
     const { table, sessions } = await liveSessions(harnesses);
 
     const active = this.#completion.apply(await this.#activeAgents(table, sessions, config.sources));
@@ -210,6 +213,7 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('agentsDeck.main', view, { webviewOptions: { retainContextWhenHidden: true } }),
+    vscode.commands.registerCommand('agentsDeck.refresh', () => view.refresh(true, true)), // the title bar's refresh button
     vscode.window.onDidChangeWindowState(refreshSoon),
     vscode.window.onDidChangeActiveTerminal(refreshSoon),
     vscode.window.onDidOpenTerminal(refreshSoon),

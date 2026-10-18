@@ -36,6 +36,23 @@
         }
       ]
     },
+    "commands": [
+      {
+        "command": "agentsDeck.refresh",
+        "title": "Refresh",
+        "category": "Agents Deck",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "agentsDeck.refresh",
+          "when": "view == agentsDeck.main",
+          "group": "navigation"
+        }
+      ]
+    },
     "views": {
       "agentsDeck": [
         {

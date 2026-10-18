@@ -168,14 +168,14 @@ function createClaude({ home, claudeCommands = ['claude', path.join(home, '.loca
     },
 
     /**
-     * Has Claude Code fetch the usage limits if they are more than 5 minutes old. Returns a promise of whether it
-     * answered, or undefined when no fetch was needed.
+     * Has Claude Code fetch the usage limits if they are more than 5 minutes old, or now if `force`. Returns a promise
+     * of whether it answered, or undefined when no fetch was needed.
      */
-    refreshAccount() {
+    refreshAccount(force = false) {
       const config = readJson(path.join(home, '.claude.json'));
       const fetchedAt = config?.cachedUsageUtilization?.fetchedAtMs;
       const now = Date.now();
-      if (!config?.oauthAccount || usageFetch || now - Math.max(Number.isFinite(fetchedAt) ? fetchedAt : 0, usageTriedAt) < USAGE_REFRESH_MS) return undefined;
+      if (!config?.oauthAccount || usageFetch || (!force && now - Math.max(Number.isFinite(fetchedAt) ? fetchedAt : 0, usageTriedAt) < USAGE_REFRESH_MS)) return undefined;
       usageTriedAt = now;
       usageFetch = fetchUsage(claudeCommands, (pid) => { usagePid = pid; }).finally(() => {
         usagePid = undefined;
