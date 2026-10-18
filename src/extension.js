@@ -51,6 +51,7 @@ class AgentsView {
   #completion = new CompletionTracker();
   #moves = new MoveTracker(MOVED_MARK_MS);
   #attachTerminals = new Map(); // agent key -> terminal opened with `claude attach`
+  #windowKeys = new Set(); // agents shown in this window so far, whose forks belong here too
   #active = new Map(); // agent key -> agent, for clicks
   #closed = [];
   #closedAt = 0;
@@ -127,7 +128,10 @@ class AgentsView {
     });
   }
 
-  /** The sessions that belong to this window: in one of its terminals, its chat panels, or background sessions of its folders. */
+  /**
+   * The sessions that belong to this window: in one of its terminals, its chat panels, or background sessions of its
+   * folders or forked from one of its agents (which stay once shown, even after that agent exits).
+   */
   async #activeAgents(table, sessions, sources) {
     const terminals = vscode.window.terminals;
     const pids = await Promise.all(terminals.map(terminalPid));
@@ -136,7 +140,9 @@ class AgentsView {
     const viewedTerminal = tab?.input instanceof vscode.TabInputTerminal ? vscode.window.activeTerminal : undefined;
     const chatLabel = tab?.input instanceof vscode.TabInputWebview && tab.input.viewType.endsWith('claudeVSCodePanel') ? tab.label : undefined;
 
-    return sessions.flatMap((session) => {
+    // Background sessions last, so the agents they may be forked from are known by then.
+    const ordered = [...sessions.filter((s) => !s.background), ...sessions.filter((s) => s.background)];
+    return ordered.flatMap((session) => {
       // A terminal's shell among the agent's ancestors means it runs in that terminal; this extension host means it
       // runs in an extension's chat panel in this window (the chat starts it as a child process). Not for background
       // sessions: they run under Claude Code's daemon, which descends from whichever terminal's `claude` started it.
@@ -145,12 +151,14 @@ class AgentsView {
       let terminal = terminalByPid.get(owner);
       if (terminal) source = 'terminal';
       else if (owner === process.pid) source = 'extension';
-      else if (session.background && inWorkspace(session.cwd)) {
+      else if (session.background && (inWorkspace(session.cwd) || this.#windowKeys.has(session.key)
+        || (session.forkedFrom && this.#windowKeys.has(`${session.harness}:${session.forkedFrom}`)))) {
         source = 'background';
         terminal = this.#attachTerminals.get(session.key);
         if (terminal && !terminals.includes(terminal)) terminal = undefined; // closed since
       }
       if (!source || !sources[source]) return [];
+      this.#windowKeys.add(session.key);
       const viewing = terminal ? terminal === viewedTerminal : source === 'extension' && session.chatTab && chatTabMatches(chatLabel, session.title);
       return [{ ...session, source, terminal, viewing }];
     });

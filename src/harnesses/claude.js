@@ -34,7 +34,17 @@ const LINE_KINDS = {
   reply: (line) => line.includes('"type":"assistant"') && line.includes('"type":"text"'),
 };
 
-function summarize({ found: { customTitle, aiTitle, prompt, tool, reply } }) {
+// A session made with /fork starts with a copy of its parent's transcript, and the copied lines keep the parent's ID in
+// their "session_id" field (undocumented: if Claude Code drops it, forks are matched by folder only). It's the line's
+// last "session_id", since a tool result earlier in the line can contain one too.
+const SESSION_ID_FIELD = '"session_id":"';
+function sessionIdOf(line) {
+  const at = line.lastIndexOf(SESSION_ID_FIELD);
+  const id = at === -1 ? '' : line.slice(at + SESSION_ID_FIELD.length, at + SESSION_ID_FIELD.length + 36);
+  return UUID.test(id) ? id : undefined;
+}
+
+function summarize({ found: { customTitle, aiTitle, prompt, tool, reply }, sessionIds }) {
   const record = (match) => (match ? parseJson(match.line) : undefined);
   const lastBlock = (match, type) => {
     const content = record(match)?.message?.content;
@@ -48,6 +58,7 @@ function summarize({ found: { customTitle, aiTitle, prompt, tool, reply } }) {
     // A tool call from before your latest prompt belongs to an earlier turn.
     tool: toolBlock && !(prompt?.seq > tool.seq) ? { name: String(toolBlock.name), detail: toolDetail(toolBlock.input) } : undefined,
     reply: plainText(lastBlock(reply, 'text')?.text).slice(0, 300),
+    sessionIds: [...sessionIds], // every session whose lines appear in the transcript, oldest first
   };
 }
 
@@ -101,9 +112,11 @@ function createClaude({ home, claudeCommands = ['claude', path.join(home, '.loca
   let usageTriedAt = 0;
 
   const transcripts = new JsonlFollower({
-    initialState: () => ({ seq: 0, found: {} }),
+    initialState: () => ({ seq: 0, found: {}, sessionIds: new Set() }),
     scan(line, state) {
       state.seq++;
+      const id = sessionIdOf(line);
+      if (id) state.sessionIds.add(id);
       for (const [kind, matches] of Object.entries(LINE_KINDS)) {
         if (matches(line)) state.found[kind] = { line, seq: state.seq };
       }
@@ -148,6 +161,7 @@ function createClaude({ home, claudeCommands = ['claude', path.join(home, '.loca
           reply: info.reply,
           background,
           attach: background ? `claude attach ${s.jobId}` : undefined,
+          forkedFrom: background ? info.sessionIds?.findLast((id) => id !== s.sessionId) : undefined, // a fork's parent
           chatTab: s.entrypoint === 'claude-vscode', // runs in the Claude Code extension's chat
         }];
       });

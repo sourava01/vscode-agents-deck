@@ -29,7 +29,7 @@ The panel shows the sessions that belong to this window, from three sources, eac
 | --- | --- |
 | Terminal | Agents started in one of this window's terminals. |
 | Extension | Agents running in an editor extension's chat panel in this window, such as the Claude Code extension. |
-| Background | Claude Code background sessions (`/fork`, `--bg`) working in this window's folders. |
+| Background | Claude Code background sessions (`/fork`, `--bg`) working in this window's folders, or forked from an agent in this window. |
 
 Extension chats are included by default, because they are the same kind of agent working on the same project. Agents in other windows and standalone apps (such as Codex Desktop) are left out, because you can't switch to them from this window.
 

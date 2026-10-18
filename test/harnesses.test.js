@@ -34,13 +34,31 @@ test('claude: live sessions from the registry, with transcript details and backg
   const [one, two] = createClaude({ home }).live();
   assert.deepEqual(one, {
     sessionId: id(1), pid: process.pid, cwd, title: 'Login fix', status: 'busy', waitingFor: undefined, statusSince: 9, startedAt: 5, lastInputAt: 5,
-    tool: { name: 'Bash', detail: 'Run tests' }, reply: 'Running now.', background: false, attach: undefined, chatTab: false,
+    tool: { name: 'Bash', detail: 'Run tests' }, reply: 'Running now.', background: false, attach: undefined, forkedFrom: undefined, chatTab: false,
   });
   assert.equal(two.title, 'fork task');
   assert.equal(two.attach, 'claude attach abcd1234');
   assert.equal(createClaude({ home }).live().length, 2, 'bad, dead, spare and unused panel entries are skipped');
   write(path.join(projectDir(home, cwd), `${id(7)}.jsonl`), jsonl(claudePrompt('hello')));
   assert.equal(createClaude({ home }).live().find((s) => s.sessionId === id(7))?.chatTab, true, 'a chat panel session shows once used');
+});
+
+test('claude: a forked background session names its parent from the lines copied into its transcript', () => {
+  const home = tempHome();
+  const cwd = '/work/app';
+  const line = (record, sessionId, ownId = id(3)) => ({ ...record, session_id: sessionId, sessionId: ownId });
+  write(path.join(home, '.claude/sessions/1.json'), JSON.stringify({ pid: process.pid, sessionId: id(3), cwd, kind: 'bg', jobId: 'abcd1234' }));
+  write(path.join(home, '.claude/sessions/2.json'), JSON.stringify({ pid: process.pid, sessionId: id(4), cwd, kind: 'bg', jobId: 'feed1234' }));
+  write(path.join(projectDir(home, cwd), `${id(3)}.jsonl`), jsonl(
+    line(claudePrompt('grandparent work'), id(1)),
+    // A tool result naming yet another session comes before the line's own session_id.
+    line({ ...claudePrompt('parent work'), toolUseResult: { session_id: id(9) } }, id(2)),
+    line(claudePrompt('fork work'), id(3))));
+  write(path.join(projectDir(home, cwd), `${id(4)}.jsonl`), jsonl(line(claudePrompt('started with --bg'), id(4), id(4))));
+
+  const byId = new Map(createClaude({ home }).live().map((s) => [s.sessionId, s]));
+  assert.equal(byId.get(id(3)).forkedFrom, id(2));
+  assert.equal(byId.get(id(4)).forkedFrom, undefined, 'not a fork');
 });
 
 test('claude: transcript title precedence, stale tools, and closed sessions', () => {
