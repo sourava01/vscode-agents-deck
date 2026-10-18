@@ -4,7 +4,7 @@
   --accent: var(--vscode-focusBorder);
   --theme-accent: var(--vscode-activityBarBadge-background, var(--accent)); /* the theme's highlight colour */
   --busy: var(--vscode-charts-blue, #3794ff);
-  --waiting: var(--vscode-charts-orange, #d18616);
+  --waiting: #d18616; /* not charts.orange: it defaults to the find-match highlight, a translucent red-orange */
   --surface: color-mix(in srgb, var(--fg) 4%, transparent);
   --hairline: color-mix(in srgb, var(--fg) 9%, transparent);
   --ease: 160ms cubic-bezier(0.2, 0, 0, 1);
