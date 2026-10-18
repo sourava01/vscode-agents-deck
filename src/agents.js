@@ -7,8 +7,8 @@ function chatTabMatches(label, title) {
 }
 
 const RANK = { waiting: 0, completed: 1, busy: 2, idle: 3 };
-// By status, then the agent you last sent a message to first (one you haven't messaged counts from its start).
-const byStatus = (a, b) => RANK[a.status] - RANK[b.status] || b.lastInputAt - a.lastInputAt;
+// By status, then the one whose status changed most recently first (the time shown on its card).
+const byStatus = (a, b) => RANK[a.status] - RANK[b.status] || (b.statusSince ?? 0) - (a.statusSince ?? 0);
 
 /** Closed sessions whose title or last reply contains `query` (case-insensitive), newest first. */
 function searchClosed(sessions, query) {

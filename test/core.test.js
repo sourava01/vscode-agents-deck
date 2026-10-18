@@ -79,8 +79,8 @@ test('chatTabMatches, byStatus and searchClosed', () => {
   assert.equal(chatTabMatches('Maximizing terminal in Z…', 'Maximizing terminal in Zed'), true);
   assert.equal(chatTabMatches('Other…', 'Maximizing terminal in Zed'), false);
   assert.equal(chatTabMatches(undefined, 'x'), false);
-  const agents = [{ status: 'idle', lastInputAt: 1 }, { status: 'busy', lastInputAt: 1 }, { status: 'busy', lastInputAt: 2 }, { status: 'completed', lastInputAt: 1 }, { status: 'waiting', lastInputAt: 1 }];
-  assert.deepEqual(agents.sort(byStatus).map((a) => `${a.status}${a.lastInputAt}`), ['waiting1', 'completed1', 'busy2', 'busy1', 'idle1'], 'latest message first within a status');
+  const agents = [{ status: 'idle', statusSince: 1 }, { status: 'busy', statusSince: 1 }, { status: 'busy', statusSince: 2 }, { status: 'completed', statusSince: 1 }, { status: 'waiting', statusSince: 1 }, { status: 'busy' }];
+  assert.deepEqual(agents.sort(byStatus).map((a) => `${a.status}${a.statusSince ?? ''}`), ['waiting1', 'completed1', 'busy2', 'busy1', 'busy', 'idle1'], 'latest status change first within a status');
   const sessions = [{ title: 'Deploy api', reply: 'Done.', lastActivity: 1 }, { title: 'Fix test', reply: 'Fixed it.', lastActivity: 2 }];
   assert.deepEqual(searchClosed(sessions, '').map((s) => s.title), ['Fix test', 'Deploy api']);
   assert.deepEqual(searchClosed(sessions, '  FIXED ').map((s) => s.title), ['Fix test']);

@@ -13,6 +13,8 @@ A VS Code sidebar panel for working with several coding agents at once: [Claude 
 - **Working**: the tool it is running right now.
 - **Idle**: the start of its last reply.
 
+Agents are listed in that order of status, and within a status by when it last changed, most recent first.
+
 The agent you are looking at is outlined in your theme's highlight colour and marked **Viewing**. Click any agent to switch to its terminal or chat tab, or to attach to a background session.
 
 **Closed Agents** lists this project's recent sessions that are no longer running. Search them by title or reply, and click one to resume it in a new terminal (`claude --resume`, `codex resume` or `pi --session`).
