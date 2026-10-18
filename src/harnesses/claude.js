@@ -122,6 +122,18 @@ function money(minor, currency, exponent = 2) {
 }
 const moneyOf = (m) => (m && typeof m === 'object' ? money(m.amount_minor, m.currency, m.exponent) : undefined);
 
+// The windows get_usage documents, when its answer has no server `limits` list (it often doesn't): each is
+// { utilization, resets_at }, and model_scoped lists the weekly limits for single models such as Fable.
+const WINDOWS = { five_hour: 'Session', seven_day: 'Weekly', seven_day_opus: 'Weekly · Opus', seven_day_sonnet: 'Weekly · Sonnet' };
+
+function documentedLimits(u) {
+  const windows = Object.entries(WINDOWS).map(([field, label]) => ({ label, ...u?.[field] }));
+  const models = (Array.isArray(u?.model_scoped) ? u.model_scoped : []).map((m) => ({ ...m, label: `Weekly · ${oneLine(m?.display_name) || 'scoped'}` }));
+  return [...windows, ...models]
+    .filter((w) => Number.isFinite(w.utilization))
+    .map((w) => ({ label: w.label, percent: w.utilization, resetsAt: Date.parse(w.resets_at) || undefined }));
+}
+
 /**
  * The rows the Accounts section shows for a usage answer: the session and weekly limits (a weekly limit for a
  * model such as Fable only when the plan has one), then usage credits when they are turned on.
@@ -129,7 +141,8 @@ const moneyOf = (m) => (m && typeof m === 'object' ? money(m.amount_minor, m.cur
 function usageRows(u) {
   const label = (l) => (l.kind === 'session' ? 'Session'
     : `Weekly${l.scope ? ` · ${l.scope.model?.display_name ?? l.scope.surface?.display_name ?? 'scoped'}` : ''}`);
-  const rows = (Array.isArray(u?.limits) ? u.limits : [])
+  // The server's `limits` list when there is one (always in the copy saved in ~/.claude.json), else the documented windows.
+  const rows = !Array.isArray(u?.limits) ? documentedLimits(u) : u.limits
     .filter((l) => Number.isFinite(l?.percent))
     .map((l) => ({ label: label(l), percent: l.percent, resetsAt: Date.parse(l.resets_at) || undefined }));
   // Usage credits: the newer `spend` block, else the older `extra_usage` one. Both cover usage past the plan limits.

@@ -133,6 +133,17 @@ test('claude: plans without Fable, with usage credits, and with no limits', () =
   assert.equal(credits.note, undefined);
   const extra = accountWith('claude_max', { extra_usage: { is_enabled: true, used_credits: 150, monthly_limit: null, utilization: null, currency: 'USD' } });
   assert.deepEqual(extra.limits, [{ label: 'Usage credits', percent: 0, detail: '$1.50 of no limit' }]);
+  // A get_usage answer often has no server `limits` list, only the documented windows.
+  const documented = accountWith('claude_max', {
+    five_hour: { utilization: 10, resets_at: '2030-01-01T00:00:00Z' }, seven_day: { utilization: 8, resets_at: null }, seven_day_opus: null,
+    model_scoped: [{ display_name: 'Fable', utilization: 4, resets_at: null }],
+  });
+  assert.deepEqual(documented.limits, [
+    { label: 'Session', percent: 10, resetsAt: Date.parse('2030-01-01T00:00:00Z') }, { label: 'Weekly', percent: 8, resetsAt: undefined }, { label: 'Weekly · Fable', percent: 4, resetsAt: undefined },
+  ]);
+  assert.equal(documented.note, undefined);
+  assert.deepEqual(accountWith('claude_pro', { five_hour: { utilization: 1 }, seven_day: { utilization: 2 }, model_scoped: [] }).limits.map((l) => l.label),
+    ['Session', 'Weekly'], 'no Fable row when model_scoped is empty');
   const enterprise = accountWith('claude_enterprise', { five_hour: null, seven_day: null, limits: [], spend: { enabled: false } });
   assert.equal(enterprise.plan, 'Enterprise');
   assert.deepEqual(enterprise.limits, []);
