@@ -86,14 +86,14 @@ test('claude: account and usage limits, and bad input', () => {
   const home = tempHome();
   write(path.join(home, '.claude.json'), JSON.stringify({
     oauthAccount: { displayName: 'Ada', emailAddress: 'ada@example.com', organizationType: 'claude_max', organizationRateLimitTier: 'default_claude_max_20x' },
-    cachedUsageUtilization: { utilization: { limits: [
+    cachedUsageUtilization: { fetchedAtMs: 1234, utilization: { limits: [
       { kind: 'session', percent: 6, resets_at: '2030-01-01T00:00:00Z' },
       { kind: 'weekly_scoped', percent: 0, scope: { model: { display_name: 'Fable' } } },
       { kind: 'weekly_all', percent: 'n/a' },
     ] } },
   }));
   assert.deepEqual(createClaude({ home }).account(), {
-    name: 'Ada', email: 'ada@example.com', plan: 'Max 20x',
+    name: 'Ada', email: 'ada@example.com', plan: 'Max 20x', updatedAt: 1234,
     limits: [{ label: 'Session', percent: 6, resetsAt: Date.parse('2030-01-01T00:00:00Z') }, { label: 'Weekly · Fable', percent: 0, resetsAt: undefined }],
   });
   assert.equal(createClaude({ home: tempHome() }).account(), undefined);

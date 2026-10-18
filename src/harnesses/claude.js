@@ -124,13 +124,15 @@ function createClaude({ home }) {
       const a = config?.oauthAccount;
       if (!a || typeof a !== 'object') return undefined;
       const tier = /(\d+x)$/.exec(String(a.organizationRateLimitTier ?? ''))?.[1];
-      const limits = config.cachedUsageUtilization?.utilization?.limits;
+      const usage = config.cachedUsageUtilization;
+      const limits = usage?.utilization?.limits;
       const label = (l) => (l.kind === 'session' ? 'Session'
         : `Weekly${l.scope ? ` · ${l.scope.model?.display_name ?? l.scope.surface?.display_name ?? 'scoped'}` : ''}`);
       return {
         name: oneLine(a.displayName),
         email: oneLine(a.emailAddress),
         plan: [PLANS[a.organizationType], tier].filter(Boolean).join(' '),
+        updatedAt: Number.isFinite(usage?.fetchedAtMs) ? usage.fetchedAtMs : undefined, // when Claude Code last fetched the limits
         limits: (Array.isArray(limits) ? limits : [])
           .filter((l) => Number.isFinite(l?.percent))
           .map((l) => ({ label: label(l), percent: l.percent, resetsAt: Date.parse(l.resets_at) || undefined })),

@@ -17,7 +17,7 @@ The agent you are looking at is outlined in your theme's highlight colour and ma
 
 **Closed Agents** lists this project's recent sessions that are no longer running. Search them by title or reply, and click one to resume it in a new terminal (`claude --resume`, `codex resume` or `pi --session`).
 
-**Accounts** shows each subscription (Claude, Codex) with its plan and usage limits.
+**Accounts** shows each subscription (Claude, Codex) with its plan and usage limits. Limits more than an hour old are greyed out with the time they were last updated.
 
 ## Which sessions are shown
 
