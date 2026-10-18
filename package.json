@@ -2,7 +2,7 @@
   "name": "agents-deck",
   "displayName": "Agents Deck",
   "description": "See and switch between the coding agents (Claude Code, Codex, pi) running in your VS Code window, resume recent sessions, and check your subscriptions' usage limits.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "sourava01",
   "license": "MIT",
   "repository": {

@@ -49,7 +49,7 @@ Extension chats are included by default, because they are the same kind of agent
 Download the `.vsix` from the [latest release](https://github.com/sourava01/vscode-agents-deck/releases/latest), then:
 
 ```sh
-code --install-extension agents-deck-0.1.0.vsix
+code --install-extension agents-deck-0.1.1.vsix
 ```
 
 Open the panel from the sparkles icon in the Activity Bar.
