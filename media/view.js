@@ -57,14 +57,16 @@
       label: `${a.title}, ${STATES[a.status]}`,
       html: `<div class="head"><span class="dot"></span><span class="state">${STATES[a.status]}</span>`
         + (a.statusSince ? `<span class="since">· ${ago(a.statusSince, now)}</span>` : '')
-        + (a.viewing ? '<span class="pill">Viewing</span>' : a.source === 'background' ? '<span class="pill quiet">Background</span>' : '')
+        + (a.viewing ? '<span class="pill">Viewing</span>' : a.resumed ? '<span class="pill">Resumed</span>'
+          : a.source === 'background' ? '<span class="pill quiet">Background</span>' : '')
         + `<span class="harness">${esc(a.harnessLabel)}</span>`
         + `</div><div class="title">${esc(a.title)}</div>${body(a)}`,
     }),
     closed: (a, now) => ({
-      cls: 'card closed',
-      label: `${a.title}, resume`,
+      cls: `card closed${a.justClosed ? ' just-closed' : ''}`,
+      label: `${a.title}, ${a.justClosed ? 'just closed, ' : ''}resume`,
       html: `<div class="top"><div class="title">${esc(a.title)}</div>`
+        + (a.justClosed ? '<span class="pill">Just closed</span>' : '')
         + `<span class="when" title="${esc(new Date(a.lastActivity).toLocaleString())}">${esc(a.harnessLabel)} · ${ago(a.lastActivity, now)} ago</span>`
         + '<span class="resume">Resume ↵</span></div>'
         + (a.reply ? `<div class="body output">${esc(a.reply)}</div>` : ''),

@@ -6,7 +6,7 @@ const path = require('path');
 const { parseProcessTable, parseCwds, findOwner } = require('../src/processes');
 const { plainText, toolDetail, within, firstLine, JsonlFollower } = require('../src/util');
 const { readConfig } = require('../src/config');
-const { chatTabMatches, byStatus, searchClosed, CompletionTracker } = require('../src/agents');
+const { chatTabMatches, byStatus, searchClosed, CompletionTracker, MoveTracker } = require('../src/agents');
 const { tempHome, write, psOutput } = require('./helpers');
 
 test('parseProcessTable reads start times and command names, skipping malformed lines', () => {
@@ -93,4 +93,22 @@ test('CompletionTracker: completed after a turn ends, idle once viewed', () => {
     .map(([status, viewing]) => step(status, viewing));
   assert.deepEqual(seen, ['busy', 'completed', 'completed', 'idle', 'idle', 'busy', 'idle', 'waiting', 'completed']);
   assert.equal(tracker.apply([{ key: 'b', status: 'idle' }])[0].status, 'idle', 'an agent first seen idle stays idle');
+});
+
+test('MoveTracker: marks sessions that just closed or resumed, for a while', () => {
+  const tracker = new MoveTracker(100);
+  const keys = (...k) => new Set(k);
+  assert.equal(tracker.update(keys('a', 'b'), keys('c'), 0), true, 'first sight counts as joining');
+  assert.equal(tracker.moved('a', 'active'), false, 'a new session is not a resumed one');
+  assert.equal(tracker.update(keys('a', 'b'), keys('c'), 10), false);
+  assert.equal(tracker.update(keys('a', 'c'), keys('c'), 20), true);
+  assert.equal(tracker.moved('b', 'closed'), true);
+  assert.equal(tracker.moved('c', 'active'), true, 'was in Closed Agents, now running again');
+  assert.equal(tracker.update(keys('a', 'c'), keys('b'), 119), false);
+  assert.equal(tracker.moved('b', 'closed'), true);
+  tracker.update(keys('a', 'c'), keys('b'), 120);
+  assert.equal(tracker.moved('b', 'closed'), false, 'the mark expires');
+  tracker.update(keys('c'), keys(), 130);
+  tracker.update(keys('a', 'c'), keys(), 140);
+  assert.equal(tracker.moved('a', 'closed') || tracker.moved('a', 'active'), false, 'briefly hidden and back is no move');
 });

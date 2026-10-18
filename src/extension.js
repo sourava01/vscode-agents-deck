@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const { promisify } = require('util');
 const execFile = promisify(require('child_process').execFile);
 const { parseProcessTable, parseCwds, findOwner } = require('./processes');
-const { chatTabMatches, byStatus, searchClosed, CompletionTracker } = require('./agents');
+const { chatTabMatches, byStatus, searchClosed, CompletionTracker, MoveTracker } = require('./agents');
 const { readConfig } = require('./config');
 const { within } = require('./util');
 const { createClaude } = require('./harnesses/claude');
@@ -16,6 +16,7 @@ const { createPi } = require('./harnesses/pi');
 
 const PAGE_SIZE = 25;
 const CLOSED_REFRESH_MS = 30000;
+const MOVED_MARK_MS = 10 * 60 * 1000; // how long a session that just closed or resumed is marked
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const home = os.homedir();
@@ -48,6 +49,7 @@ async function liveSessions(harnesses) {
 
 class AgentsView {
   #completion = new CompletionTracker();
+  #moves = new MoveTracker(MOVED_MARK_MS);
   #attachTerminals = new Map(); // agent key -> terminal opened with `claude attach`
   #active = new Map(); // agent key -> agent, for clicks
   #closed = [];
@@ -75,7 +77,7 @@ class AgentsView {
     view.onDidChangeVisibility(() => this.refresh(true));
   }
 
-  /** Re-reads active agents; closed sessions only every 30 seconds unless `includeClosed`. */
+  /** Re-reads active agents; closed sessions only every 30 seconds, unless `includeClosed` or an agent started or stopped. */
   refresh(includeClosed = false) {
     this.#refreshing = this.#refreshing.then(() => this.#refresh(includeClosed)).catch(() => {});
     return this.#refreshing;
@@ -90,9 +92,11 @@ class AgentsView {
     const active = this.#completion.apply(await this.#activeAgents(table, sessions, config.sources));
     active.sort(byStatus);
     this.#active = new Map(active.map((agent) => [agent.key, agent]));
+    // An agent that left Active belongs in Closed Agents now (and a resumed one no longer does), so re-read those too.
+    const moved = this.#moves.update(new Set(this.#active.keys()), new Set(this.#closed.map((s) => s.key)), Date.now());
 
     if (config.closedMaxAgeDays === 0) this.#closed = [];
-    else if (includeClosed || Date.now() - this.#closedAt > CLOSED_REFRESH_MS) {
+    else if (includeClosed || moved || Date.now() - this.#closedAt > CLOSED_REFRESH_MS) {
       const live = new Set(sessions.map((s) => s.sessionId).filter(Boolean));
       const since = Date.now() - config.closedMaxAgeDays * DAY_MS;
       this.#closed = searchClosed(harnesses.flatMap((h) => h.closed({ roots: roots(), since, live })
@@ -100,11 +104,17 @@ class AgentsView {
       this.#closedAt = Date.now();
     }
 
+    // Sessions that just closed go first, so they're easy to find even if their last message was long ago.
+    const justClosed = (s) => this.#moves.moved(s.key, 'closed');
+    const closed = [...this.#closed.filter(justClosed), ...this.#closed.filter((s) => !justClosed(s))];
     this.view.webview.postMessage({
       now: Date.now(),
-      active: active.map(({ terminal, ...agent }) => agent),
-      closed: config.closedMaxAgeDays === 0 ? undefined
-        : { agents: this.#closed.slice(0, this.#limit).map(({ resume, ...s }) => s), total: this.#closed.length, hasMore: this.#closed.length > this.#limit },
+      active: active.map(({ terminal, ...agent }) => ({ ...agent, resumed: this.#moves.moved(agent.key, 'active') })),
+      closed: config.closedMaxAgeDays === 0 ? undefined : {
+        agents: closed.slice(0, this.#limit).map(({ resume, ...s }) => ({ ...s, justClosed: justClosed(s) })),
+        total: closed.length,
+        hasMore: closed.length > this.#limit,
+      },
       accounts: config.accounts ? harnesses.flatMap((h) => {
         const account = h.account();
         return account ? [{ harness: h.label, ...account }] : [];

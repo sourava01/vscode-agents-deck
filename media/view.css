@@ -145,6 +145,8 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 /* Closed cards: quieter, with "x ago" turning into "Resume ↵" on hover */
 .card.closed { gap: 4px; height: 59px; padding-left: 12px; background: transparent; box-shadow: 0 0 0 1px var(--hairline); }
 .card.closed:hover { background: var(--surface); }
+.card.just-closed::before { content: ""; position: absolute; inset: 8px auto 8px 0; width: 3px; border-radius: 0 3px 3px 0; background: var(--theme-accent); }
+.card.closed .pill { flex: none; margin-left: 0; }
 .card.closed .title { flex: 1; font-weight: 500; }
 .top { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .when, .resume { flex: none; color: var(--muted); font-size: 10.5px; }
