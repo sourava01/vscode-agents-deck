@@ -135,8 +135,9 @@ class AgentsView {
 
     return sessions.flatMap((session) => {
       // A terminal's shell among the agent's ancestors means it runs in that terminal; this extension host means it
-      // runs in an extension's chat panel in this window (the chat starts it as a child process).
-      const owner = findOwner(session.pid, table, (pid) => terminalByPid.has(pid) || pid === process.pid);
+      // runs in an extension's chat panel in this window (the chat starts it as a child process). Not for background
+      // sessions: they run under Claude Code's daemon, which descends from whichever terminal's `claude` started it.
+      const owner = session.background ? undefined : findOwner(session.pid, table, (pid) => terminalByPid.has(pid) || pid === process.pid);
       let source;
       let terminal = terminalByPid.get(owner);
       if (terminal) source = 'terminal';
