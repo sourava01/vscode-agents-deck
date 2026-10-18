@@ -19,7 +19,7 @@ The agent you are looking at is outlined in your theme's highlight colour and ma
 
 **Closed Agents** lists this project's recent sessions that are no longer running. Search them by title or reply, and click one to resume it in a new terminal (`claude --resume`, `codex resume` or `pi --session`).
 
-**Accounts** shows each subscription (Claude, Codex) with its plan and usage limits. Limits more than an hour old are greyed out with the time they were last updated.
+**Accounts** shows each subscription (Claude, Codex) with its plan and usage limits. Only the limits a plan has are shown (a weekly Fable limit only if your plan has one), plus usage credits when they're turned on. API-key logins, and plans with no limits or paid with credits, show a note instead. Limits more than an hour old are greyed out with the time they were last updated.
 
 ## Which sessions are shown
 
@@ -74,7 +74,7 @@ Known limits:
 
 - A session with no prompt yet shows as **New session** (pi writes its transcript only after the first prompt).
 - pi doesn't record permission prompts, so a pi agent is never shown as **Needs input**.
-- Codex limits appear only when Codex records them; some plans report none.
+- Codex limits appear only when Codex records them, which it does during a session.
 
 ## Development
 

@@ -93,6 +93,55 @@ function limitLabel(minutes) {
   return minutes < 24 * 60 ? `${Math.round(minutes / 60)}h` : `${Math.round(minutes / (24 * 60))}d`;
 }
 
+// Codex's plan types (PlanType in codex-rs/protocol/src/account.rs); others are shown title-cased.
+const PLANS = {
+  prolite: 'Pro Lite',
+  promax: 'Pro Max',
+  self_serve_business_prolite: 'Business',
+  self_serve_business_usage_based: 'Business',
+  ent26: 'Enterprise',
+  enterprise_cbp_automation: 'Enterprise',
+  enterprise_cbp_usage_based: 'Enterprise',
+  edu_plus: 'Edu',
+};
+const planLabel = (plan) => PLANS[plan] ?? oneLine(String(plan ?? '')).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+// Why Codex stopped answering, from the rate limits it records (RateLimitReachedType).
+const REACHED = {
+  rate_limit_reached: 'Usage limit reached.',
+  workspace_owner_credits_depleted: 'Workspace credits used up.',
+  workspace_member_credits_depleted: 'Workspace credits used up. Ask your workspace owner for more.',
+  workspace_owner_usage_limit_reached: 'Workspace usage limit reached.',
+  workspace_member_usage_limit_reached: 'Workspace usage limit reached. Ask your workspace owner to raise it.',
+};
+
+/**
+ * The rows and note for Codex's latest rate limits: its time windows, a personal spend limit, and otherwise how
+ * credits cover usage (business and enterprise plans often have no time windows).
+ */
+function codexUsage(r) {
+  const limits = [r?.primary, r?.secondary]
+    .filter((l) => Number.isFinite(l?.used_percent))
+    .map((l) => ({ label: limitLabel(l.window_minutes), percent: l.used_percent, resetsAt: Number.isFinite(l.resets_at) ? l.resets_at * 1000 : undefined }));
+  const spend = r?.individual_limit;
+  if (Number.isFinite(spend?.remaining_percent)) {
+    limits.push({
+      label: 'Spend limit',
+      percent: 100 - spend.remaining_percent,
+      detail: `${oneLine(String(spend.used))} of ${oneLine(String(spend.limit))}`,
+      resetsAt: Number.isFinite(spend.resets_at) ? spend.resets_at * 1000 : undefined,
+    });
+  }
+  const credits = r?.credits;
+  const note = REACHED[r?.rate_limit_reached_type]
+    ?? (r?.spend_control_reached === true ? 'Spend limit reached.' : undefined)
+    ?? (limits.length || !credits ? undefined
+      : credits.unlimited ? 'Unlimited credits.'
+        : credits.balance ? `Credits: ${oneLine(String(credits.balance))}`
+          : credits.has_credits ? 'No usage limits: usage is paid with credits.' : 'No credits left.');
+  return { limits, note };
+}
+
 // The interactive CLI, not its background app-server.
 const isCli = (proc) => proc.command === 'codex' && !proc.args.includes('app-server');
 
@@ -183,20 +232,19 @@ function createCodex({ home }) {
     account() {
       const auth = readJson(path.join(root, 'auth.json'));
       const claims = jwtClaims(auth?.tokens?.id_token);
-      if (!claims) return undefined;
-      const plan = oneLine(claims['https://api.openai.com/auth']?.chatgpt_plan_type);
+      if (!claims) {
+        // Signed in with an OpenAI API key: billed per token, no plan limits.
+        return auth?.OPENAI_API_KEY || auth?.auth_mode === 'apikey'
+          ? { name: '', email: '', plan: 'API key', limits: [], note: 'No plan limits: usage is billed per token.' }
+          : undefined;
+      }
       const latest = rollouts(Date.now() - 7 * DAY_MS)[0];
-      const limits = latest ? transcripts.read(latest.file)?.rateLimits : undefined;
-      return {
-        name: oneLine(claims.name),
-        email: oneLine(claims.email),
-        plan: plan && plan[0].toUpperCase() + plan.slice(1),
-        limits: [limits?.primary, limits?.secondary]
-          .filter((l) => Number.isFinite(l?.used_percent))
-          .map((l) => ({ label: limitLabel(l.window_minutes), percent: l.used_percent, resetsAt: Number.isFinite(l.resets_at) ? l.resets_at * 1000 : undefined })),
-      };
+      const rateLimits = latest ? transcripts.read(latest.file)?.rateLimits : undefined;
+      // The plan Codex last reported beats the one in the ID token, which is only as new as the last sign-in.
+      const plan = rateLimits?.plan_type ?? claims['https://api.openai.com/auth']?.chatgpt_plan_type;
+      return { name: oneLine(claims.name), email: oneLine(claims.email), plan: plan ? planLabel(plan) : '', ...codexUsage(rateLimits) };
     },
   };
 }
 
-module.exports = { createCodex, jwtClaims, limitLabel };
+module.exports = { createCodex, jwtClaims, limitLabel, planLabel, codexUsage };

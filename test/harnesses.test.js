@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 const { createClaude, projectDir } = require('../src/harnesses/claude');
-const { createCodex, jwtClaims, limitLabel } = require('../src/harnesses/codex');
+const { createCodex, jwtClaims, limitLabel, planLabel, codexUsage } = require('../src/harnesses/codex');
 const { createPi, sessionDir } = require('../src/harnesses/pi');
 const { tempHome, id, jsonl, write } = require('./helpers');
 
@@ -113,8 +113,28 @@ test('claude: account and usage limits, and bad input', () => {
   assert.deepEqual(createClaude({ home }).account(), {
     name: 'Ada', email: 'ada@example.com', plan: 'Max 20x', updatedAt: 1234,
     limits: [{ label: 'Session', percent: 6, resetsAt: Date.parse('2030-01-01T00:00:00Z') }, { label: 'Weekly · Fable', percent: 0, resetsAt: undefined }],
+    note: undefined,
   });
   assert.equal(createClaude({ home: tempHome() }).account(), undefined);
+});
+
+test('claude: plans without Fable, with usage credits, and with no limits', () => {
+  const home = tempHome();
+  const accountWith = (organizationType, utilization) => {
+    write(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { organizationType }, cachedUsageUtilization: { fetchedAtMs: 1, utilization } }));
+    return createClaude({ home }).account();
+  };
+  const pro = accountWith('claude_pro', { limits: [{ kind: 'session', percent: 3 }, { kind: 'weekly_all', percent: 1 }] });
+  assert.deepEqual(pro.limits.map((l) => l.label), ['Session', 'Weekly'], 'no Fable row when the plan has no Fable limit');
+  const credits = accountWith('claude_team', { limits: [], spend: { enabled: true, percent: 25, used: { amount_minor: 2500, currency: 'USD', exponent: 2 }, limit: { amount_minor: 10000, currency: 'USD', exponent: 2 } } });
+  assert.deepEqual(credits.limits, [{ label: 'Usage credits', percent: 25, detail: '$25.00 of $100.00' }]);
+  assert.equal(credits.note, undefined);
+  const extra = accountWith('claude_max', { extra_usage: { is_enabled: true, used_credits: 150, monthly_limit: null, utilization: null, currency: 'USD' } });
+  assert.deepEqual(extra.limits, [{ label: 'Usage credits', percent: 0, detail: '$1.50 of no limit' }]);
+  const enterprise = accountWith('claude_enterprise', { five_hour: null, seven_day: null, limits: [], spend: { enabled: false } });
+  assert.equal(enterprise.plan, 'Enterprise');
+  assert.deepEqual(enterprise.limits, []);
+  assert.equal(enterprise.note, 'No usage limits reported for this plan.');
 });
 
 test('claude: refreshAccount runs claude to fetch usage at most every 5 minutes, and hides that process', async () => {
@@ -127,13 +147,15 @@ fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n
 fs.writeFileSync(${JSON.stringify(path.join(home, '.claude/sessions/helper.json'))}, JSON.stringify({ pid: process.pid, sessionId: '${id(9)}', cwd: '/tmp' }));
 process.stdin.once('data', (line) => {
   const { request_id } = JSON.parse(line);
-  setTimeout(() => console.log(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id } })), 1000);
+  const response = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(home, 'answer.json'))}, 'utf8'));
+  setTimeout(() => console.log(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id, response } })), 1000);
 });
 process.stdin.on('end', () => process.exit(0));
 `);
   fs.chmodSync(fake, 0o755);
   fs.mkdirSync(path.join(home, '.claude/sessions'), { recursive: true });
   write(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: {}, cachedUsageUtilization: { fetchedAtMs: NOW - 10 * 60 * 1000 } }));
+  write(path.join(home, 'answer.json'), JSON.stringify({ subscription_type: 'pro', rate_limits_available: true, rate_limits: { limits: [{ kind: 'session', percent: 12 }], model_scoped: [] } }));
   const claude = createClaude({ home, claudeCommands: [path.join(home, 'missing'), fake] });
 
   const fetching = claude.refreshAccount();
@@ -143,12 +165,20 @@ process.stdin.on('end', () => process.exit(0));
   assert.equal(await fetching, true, 'falls back past a missing command');
   assert.match(fs.readFileSync(log, 'utf8'), /--no-session-persistence/);
   assert.equal(claude.refreshAccount(), undefined, 'tried less than 5 minutes ago');
+  const { plan, limits, note } = claude.account();
+  assert.deepEqual({ plan, limits, note }, { plan: 'Pro', limits: [{ label: 'Session', percent: 12, resetsAt: undefined }], note: undefined }, 'the answer beats the saved copy');
 
   write(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: {}, cachedUsageUtilization: { fetchedAtMs: NOW } }));
   assert.equal(createClaude({ home, claudeCommands: [fake] }).refreshAccount(), undefined, 'fresh enough already');
+
+  // An API key (or Bedrock, Vertex) login: no account in ~/.claude.json and no plan limits.
   write(path.join(home, '.claude.json'), JSON.stringify({}));
-  assert.equal(createClaude({ home, claudeCommands: [fake] }).refreshAccount(), undefined, 'not signed in to a subscription');
-  assert.equal(await createClaude({ home: tempHome(), claudeCommands: [] }).refreshAccount(), undefined);
+  write(path.join(home, 'answer.json'), JSON.stringify({ subscription_type: null, rate_limits_available: false, rate_limits: null }));
+  const api = createClaude({ home, claudeCommands: [fake] });
+  assert.equal(api.account(), undefined, 'nothing to show before the first answer');
+  assert.equal(await api.refreshAccount(), true);
+  assert.deepEqual(api.account(), { name: '', email: '', plan: 'API', limits: [], note: 'No plan limits: usage is billed per token.' });
+  assert.equal(await createClaude({ home: tempHome(), claudeCommands: [] }).refreshAccount(), false, 'claude not installed');
 });
 
 // ---- Codex ----
@@ -237,11 +267,29 @@ test('codex: account from the ID token, rate limits, and bad input', () => {
   assert.deepEqual(createCodex({ home }).account(), {
     name: 'Ada', email: 'ada@example.com', plan: 'Plus',
     limits: [{ label: '5h', percent: 42, resetsAt: 2000000000000 }, { label: 'Weekly', percent: 7, resetsAt: undefined }],
+    note: undefined,
   });
   assert.equal(jwtClaims('not-a-jwt'), undefined);
   assert.equal(limitLabel(undefined), 'Limit');
-  write(path.join(home, '.codex/auth.json'), '{"auth_mode":"apikey"}');
-  assert.equal(createCodex({ home }).account(), undefined, 'API-key logins have no account to show');
+  write(path.join(home, '.codex/auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-secret' }));
+  assert.deepEqual(createCodex({ home }).account(), { name: '', email: '', plan: 'API key', limits: [], note: 'No plan limits: usage is billed per token.' });
+  write(path.join(home, '.codex/auth.json'), '{}');
+  assert.equal(createCodex({ home }).account(), undefined, 'signed out');
+});
+
+test('codex: plans paid with credits, spend limits, and plan names', () => {
+  // A business plan as Codex records it: no time windows, workspace credits.
+  const business = { limit_id: 'codex', primary: null, secondary: null, credits: { has_credits: true, unlimited: false, balance: null }, individual_limit: null, spend_control_reached: null, plan_type: 'business', rate_limit_reached_type: null };
+  assert.deepEqual(codexUsage(business), { limits: [], note: 'No usage limits: usage is paid with credits.' });
+  assert.equal(codexUsage({ ...business, credits: { has_credits: true, unlimited: true, balance: null } }).note, 'Unlimited credits.');
+  assert.equal(codexUsage({ ...business, credits: { has_credits: true, unlimited: false, balance: '120' } }).note, 'Credits: 120');
+  assert.equal(codexUsage({ ...business, rate_limit_reached_type: 'workspace_member_credits_depleted' }).note, 'Workspace credits used up. Ask your workspace owner for more.');
+  assert.deepEqual(codexUsage({ ...business, individual_limit: { limit: '$50', used: '$40', remaining_percent: 20, resets_at: 2000000000 } }), {
+    limits: [{ label: 'Spend limit', percent: 80, detail: '$40 of $50', resetsAt: 2000000000000 }], note: undefined,
+  });
+  assert.deepEqual(codexUsage(undefined), { limits: [], note: undefined }, 'no rate limits recorded yet');
+  assert.deepEqual(['plus', 'prolite', 'self_serve_business_usage_based', 'enterprise_cbp_automation', 'edu_plus', 'new_plan'].map(planLabel),
+    ['Plus', 'Pro Lite', 'Business', 'Enterprise', 'Edu', 'New Plan']);
 });
 
 // ---- pi ----

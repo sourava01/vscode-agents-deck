@@ -153,9 +153,11 @@
     const html = accounts.map((a) => `<div class="account-card"><div class="who"><span class="name">${esc(a.harness)}</span>`
       + (a.plan ? `<span class="plan">${esc(a.plan)}</span>` : '') + '</div>'
       + (a.email || a.name ? `<div class="email">${esc(a.email || a.name)}</div>` : '')
+      + (a.note ? `<div class="note">${esc(a.note)}</div>` : '')
       + (stale(a, now) ? `<div class="stale-note">Last updated ${ago(a.updatedAt, now)} ago. Run <code>/usage</code> in Claude Code to refresh.</div>` : '')
       + a.limits.map((l) => `<div class="limit${stale(a, now) ? ' stale' : l.percent >= 90 ? ' high' : l.percent >= 70 ? ' warn' : ''}">`
         + `<div class="limit-row"><span>${esc(l.label)}</span>`
+        + (l.detail ? `<span class="reset">${esc(l.detail)}</span>` : '')
         + (l.resetsAt ? `<span class="reset">${l.resetsAt > now ? `Resets ${until(l.resetsAt, now)}` : 'Reset'}</span>` : '')
         + `<span class="percent">${Math.round(l.percent)}%</span></div>`
         + `<progress class="bar" max="100" value="${l.percent}"></progress></div>`).join('')
