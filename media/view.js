@@ -2,7 +2,10 @@
 // re-rendered only when their HTML changes, so the periodic refresh doesn't flicker or steal focus.
 (() => {
   const vscode = acquireVsCodeApi();
-  const collapsed = vscode.getState()?.collapsed ?? {};
+  const saved = vscode.getState() ?? {};
+  const collapsed = saved.collapsed ?? {};
+  let closedShare = Number.isFinite(saved.closedShare) ? saved.closedShare : undefined; // Closed Agents' share, if resized
+  const saveState = () => vscode.setState({ collapsed, closedShare });
   const STATES = { busy: 'Working', waiting: 'Needs input', completed: 'Completed', idle: 'Idle' };
   const WAITING = { 'input needed': 'Waiting for your answer', 'dialog open': 'A dialog is waiting for you' };
   const CHEVRON = '<svg class="chevron" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.7 13.7 5 13l4.6-4.6L5 3.7 5.7 3l5.3 5.4z" fill="currentColor"/></svg>';
@@ -36,7 +39,7 @@
     set(Boolean(collapsed[key]));
     head.addEventListener('click', () => {
       set(!collapsed[key]);
-      vscode.setState({ collapsed });
+      saveState();
     });
     return el;
   }
@@ -100,6 +103,50 @@
       cards: new Map(), // agent key -> { el, html }
     };
   }
+
+  // Between the two sections while both are open: drag it (or use the arrow keys) to share the space between them, and
+  // double-click it to go back to the default split. The split survives reloads of the panel.
+  const resizer = Object.assign(document.createElement('div'), { className: 'resizer', tabIndex: 0, title: 'Drag to resize. Double-click to reset.' });
+  resizer.setAttribute('role', 'separator');
+  resizer.setAttribute('aria-orientation', 'horizontal');
+  resizer.setAttribute('aria-label', 'Resize Active and Closed Agents');
+  sections.closed.el.before(resizer);
+  const SHARE = { min: 0.15, max: 0.85, step: 0.05, default: 0.45 };
+  const applyShare = () => {
+    if (closedShare === undefined) root.style.removeProperty('--closed-share');
+    else root.style.setProperty('--closed-share', `${closedShare * 100}%`);
+    resizer.ariaValueNow = String(Math.round((closedShare ?? SHARE.default) * 100));
+  };
+  const setShare = (share) => {
+    closedShare = share === undefined ? undefined : Math.min(SHARE.max, Math.max(SHARE.min, share));
+    applyShare();
+    saveState();
+  };
+  applyShare();
+  resizer.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    resizer.setPointerCapture(e.pointerId);
+    resizer.classList.add('dragging');
+    // The share is of #root's content height, which is what Closed Agents' flex-basis percentage is measured against.
+    const style = getComputedStyle(root);
+    const height = root.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    const bottom = sections.closed.el.getBoundingClientRect().bottom;
+    const move = (ev) => setShare((bottom - ev.clientY) / height);
+    const end = () => {
+      resizer.classList.remove('dragging');
+      resizer.removeEventListener('pointermove', move);
+    };
+    resizer.addEventListener('pointermove', move);
+    resizer.addEventListener('pointerup', end, { once: true });
+    resizer.addEventListener('pointercancel', end, { once: true });
+  });
+  resizer.addEventListener('dblclick', () => setShare(undefined));
+  resizer.addEventListener('keydown', (e) => {
+    const delta = { ArrowUp: SHARE.step, ArrowDown: -SHARE.step }[e.key];
+    if (delta === undefined) return;
+    e.preventDefault();
+    setShare((closedShare ?? SHARE.default) + delta);
+  });
 
   // Search runs in the extension, so it covers every closed session, not just the loaded page.
   let searchTimer;

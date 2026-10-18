@@ -36,7 +36,13 @@ button {
 button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* Section header: chevron, title, count on the right (like Claude Code's session groups) */
-.section + .section { margin-top: 10px; }
+/* Between Active and Closed Agents while both are open: drag to resize; a line shows on hover */
+.resizer { position: relative; flex: none; height: 10px; cursor: row-resize; touch-action: none; }
+.resizer::after { content: ""; position: absolute; inset: 4px 0 auto; height: 2px; border-radius: 1px; transition: background-color var(--ease); }
+.resizer:is(:hover, :focus-visible, .dragging)::after { background: var(--accent); }
+.resizer:focus-visible { outline: none; }
+#root:has(.section.collapsed) .resizer { display: none; }
+#root:has(.section.collapsed) .resizer + .section { margin-top: 10px; }
 .section-head {
   display: flex;
   align-items: center;
@@ -171,10 +177,10 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* Account and usage, pinned to the bottom */
 #root { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-bottom: 10px; } /* min-width: 0 stops long titles widening the panel */
-/* Active Agents takes the free space and Closed Agents a fixed 45% of it, so Closed Agents stays in the same place
-   however many agents run. A collapsed section shrinks to its header and the other one takes the space. */
+/* Active Agents takes the free space and Closed Agents a fixed share of it (45% unless resized), so Closed Agents stays
+   in the same place however many agents run. A collapsed section shrinks to its header and the other takes the space. */
 .section:first-child:not(.collapsed) { flex: 1 1 0; }
-.section:last-child:not(.collapsed) { flex: 0 0 45%; }
+.section:last-child:not(.collapsed) { flex: 0 0 var(--closed-share, 45%); } /* set by dragging the resizer */
 #root:has(.section:first-child.collapsed) .section:last-child:not(.collapsed) { flex: 1 1 0; }
 #root:has(.section:last-child.collapsed) { padding-bottom: 4px; }
 .account {
