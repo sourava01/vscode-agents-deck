@@ -100,7 +100,7 @@
         },
         "agentsDeck.refreshSeconds": {
           "type": "integer",
-          "default": 5,
+          "default": 10,
           "minimum": 2,
           "maximum": 60,
           "order": 9,

@@ -39,7 +39,7 @@ Extension chats are included by default, because they are the same kind of agent
 | `agentsDeck.sources.terminal` / `.extension` / `.background` | `true` | Show sessions from that source (see above). |
 | `agentsDeck.closedSessions.maxAgeDays` | `7` | Days of finished sessions to list. `0` hides Closed Agents. |
 | `agentsDeck.accounts.enabled` | `true` | Show the Accounts section. |
-| `agentsDeck.refreshSeconds` | `5` | How often the panel re-reads agent status (2 to 60). |
+| `agentsDeck.refreshSeconds` | `10` | How often the panel re-reads agent status (2 to 60). |
 
 ## Install
 

@@ -65,7 +65,7 @@ test('readConfig: defaults, and bad values fall back or are clamped', () => {
     sources: { terminal: true, extension: true, background: true },
     closedMaxAgeDays: 7,
     accounts: true,
-    refreshMs: 5000,
+    refreshMs: 10000,
   });
   const values = { 'harnesses.codex': false, 'sources.background': 'yes', 'closedSessions.maxAgeDays': -3, refreshSeconds: 0.4 };
   const config = readConfig((key) => values[key]);

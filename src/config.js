@@ -13,7 +13,7 @@ function readConfig(get) {
     sources: Object.fromEntries(SOURCES.map((id) => [id, bool(get(`sources.${id}`), true)])),
     closedMaxAgeDays: clamp(get('closedSessions.maxAgeDays'), 0, 365, 7), // 0 hides Closed Agents
     accounts: bool(get('accounts.enabled'), true),
-    refreshMs: clamp(get('refreshSeconds'), 2, 60, 5) * 1000,
+    refreshMs: clamp(get('refreshSeconds'), 2, 60, 10) * 1000,
   };
 }
 
