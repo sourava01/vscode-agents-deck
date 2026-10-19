@@ -72,21 +72,19 @@ const USAGE_REQUEST = `${JSON.stringify({ type: 'control_request', request_id: '
 const USAGE_TIMEOUT_MS = 30000;
 
 /**
- * Runs the first of `commands` that exists to fetch the usage limits; `onStart(pid)` gets its process ID. Resolves to
- * Claude Code's answer (subscription_type, rate_limits_available, rate_limits), or undefined if it didn't answer.
+ * Runs `command` (claude) to fetch the usage limits; `onStart(pid)` gets its process ID. Resolves to Claude Code's
+ * answer (subscription_type, rate_limits_available, rate_limits), or undefined if it didn't answer.
  */
-function fetchUsage(commands, onStart) {
-  const [command, ...fallbacks] = commands;
-  if (!command) return Promise.resolve(undefined);
+function fetchUsage(command, onStart) {
   return new Promise((resolve) => {
     const child = spawn(command, USAGE_ARGS, { cwd: os.tmpdir(), stdio: ['pipe', 'pipe', 'ignore'] });
     const timer = setTimeout(() => child.kill(), USAGE_TIMEOUT_MS);
     let answer;
     let rest = '';
     child.on('spawn', () => onStart(child.pid));
-    child.on('error', (err) => {
+    child.on('error', () => {
       clearTimeout(timer);
-      resolve(err.code === 'ENOENT' ? fetchUsage(fallbacks, onStart) : undefined);
+      resolve(undefined);
     });
     child.on('close', () => {
       clearTimeout(timer);
@@ -108,19 +106,17 @@ function fetchUsage(commands, onStart) {
 const USAGE_RETRY_NO_LIMITS_MS = 60 * 60 * 1000; // an API key login has no plan limits to watch
 
 const PLANS = { claude_pro: 'Pro', claude_max: 'Max', claude_team: 'Team', claude_enterprise: 'Enterprise' };
-const SUBSCRIPTIONS = { pro: 'Pro', max: 'Max', team: 'Team', enterprise: 'Enterprise' }; // get_usage's subscription_type
 
 /** An amount in minor units (cents) as currency, e.g. 1234 USD -> "$12.34". */
-function money(minor, currency, exponent = 2) {
+function money(minor, currency, exponent) {
   if (!Number.isFinite(minor)) return undefined;
-  const value = minor / 10 ** (Number.isInteger(exponent) ? exponent : 2);
+  const value = minor / 10 ** exponent;
   try {
     return new Intl.NumberFormat('en-US', { style: 'currency', currency: String(currency || 'USD') }).format(value);
   } catch {
     return value.toFixed(2);
   }
 }
-const moneyOf = (m) => (m && typeof m === 'object' ? money(m.amount_minor, m.currency, m.exponent) : undefined);
 
 // The windows a get_usage answer documents: each is { utilization, resets_at }, and model_scoped lists the weekly
 // limits for single models such as Fable (empty when the plan has none).
@@ -136,12 +132,9 @@ function usageRows(u) {
   const rows = [...windows, ...models]
     .filter((w) => Number.isFinite(w.utilization))
     .map((w) => ({ label: w.label, percent: w.utilization, resetsAt: Date.parse(w.resets_at) || undefined }));
-  // Usage credits: the newer `spend` block, else the older `extra_usage` one. Both cover usage past the plan limits.
-  const spend = u?.spend;
+  // Usage credits (extra usage), which cover usage past the plan limits, as Claude Code's /usage screen shows them.
   const extra = u?.extra_usage;
-  if (spend?.enabled === true && moneyOf(spend.limit) && Number.isFinite(spend.percent)) {
-    rows.push({ label: 'Usage credits', percent: spend.percent, detail: `${moneyOf(spend.used) ?? '?'} of ${moneyOf(spend.limit)}` });
-  } else if (extra?.is_enabled === true) {
+  if (extra?.is_enabled === true) {
     const places = Number.isInteger(extra.decimal_places) ? extra.decimal_places : 2;
     const used = money(extra.used_credits, extra.currency, places) ?? '?';
     rows.push({
@@ -153,7 +146,7 @@ function usageRows(u) {
   return rows;
 }
 
-function createClaude({ home, claudeCommands = ['claude', path.join(home, '.local', 'bin', 'claude'), '/opt/homebrew/bin/claude', '/usr/local/bin/claude'] }) {
+function createClaude({ home, claudeCommand = 'claude' }) {
   let usagePid; // the `claude` process fetching usage, which registers itself as a session while it runs
   let usageFetch;
   let usageTriedAt = 0;
@@ -240,7 +233,7 @@ function createClaude({ home, claudeCommands = ['claude', path.join(home, '.loca
       const every = usage?.answer?.rate_limits_available === false ? USAGE_RETRY_NO_LIMITS_MS : USAGE_REFRESH_MS;
       if (usageFetch || (!force && now - usageTriedAt < every)) return undefined;
       usageTriedAt = now;
-      usageFetch = fetchUsage(claudeCommands, (pid) => { usagePid = pid; }).then((answer) => {
+      usageFetch = fetchUsage(claudeCommand, (pid) => { usagePid = pid; }).then((answer) => {
         usage = answer ? { answer } : { failed: true };
         return true;
       }).finally(() => {
@@ -260,7 +253,7 @@ function createClaude({ home, claudeCommands = ['claude', path.join(home, '.loca
       const answer = usage?.answer;
       if (!a && !answer) return undefined;
       const tier = /(\d+x)$/.exec(String(a?.organizationRateLimitTier ?? ''))?.[1];
-      const plan = [PLANS[a?.organizationType] ?? SUBSCRIPTIONS[answer?.subscription_type], tier].filter(Boolean).join(' ');
+      const plan = [PLANS[a?.organizationType], tier].filter(Boolean).join(' ');
       const who = { name: oneLine(a?.displayName), email: oneLine(a?.emailAddress) };
       // API key, Bedrock and Vertex logins are billed per token: there are no plan limits to show.
       if (answer?.rate_limits_available === false) return { ...who, plan: plan || 'API', limits: [], note: 'No plan limits: usage is billed per token.' };

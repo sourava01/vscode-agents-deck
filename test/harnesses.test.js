@@ -107,7 +107,7 @@ test('claude: account, then Loading until Claude Code answers, and an error when
   write(path.join(home, '.claude.json'), JSON.stringify({
     oauthAccount: { displayName: 'Ada', emailAddress: 'ada@example.com', organizationType: 'claude_max', organizationRateLimitTier: 'default_claude_max_20x' },
   }));
-  const claude = createClaude({ home, claudeCommands: [] });
+  const claude = createClaude({ home, claudeCommand: path.join(home, 'missing') });
   const who = { name: 'Ada', email: 'ada@example.com', plan: 'Max 20x', limits: [] };
   assert.deepEqual(claude.account(), { ...who, note: 'Loading usage…' });
   assert.equal(await claude.refreshAccount(), true);
@@ -123,11 +123,11 @@ test('claude: usage rows for plans with and without Fable, and usage credits', (
     { label: 'Session', percent: 10, resetsAt: Date.parse('2030-01-01T00:00:00Z') }, { label: 'Weekly', percent: 8, resetsAt: undefined }, { label: 'Weekly · Fable', percent: 4, resetsAt: undefined },
   ]);
   assert.deepEqual(usageRows({ five_hour: { utilization: 1 }, seven_day: { utilization: 2 }, model_scoped: [] }).map((l) => l.label), ['Session', 'Weekly'], 'no Fable row when the plan has no Fable limit');
-  assert.deepEqual(usageRows({ spend: { enabled: true, percent: 25, used: { amount_minor: 2500, currency: 'USD', exponent: 2 }, limit: { amount_minor: 10000, currency: 'USD', exponent: 2 } } }),
+  assert.deepEqual(usageRows({ extra_usage: { is_enabled: true, used_credits: 2500, monthly_limit: 10000, utilization: 25, currency: 'USD', decimal_places: 2 } }),
     [{ label: 'Usage credits', percent: 25, detail: '$25.00 of $100.00' }]);
   assert.deepEqual(usageRows({ extra_usage: { is_enabled: true, used_credits: 150, monthly_limit: null, utilization: null, currency: 'USD' } }),
     [{ label: 'Usage credits', percent: 0, detail: '$1.50 of no limit' }]);
-  assert.deepEqual(usageRows({ five_hour: null, seven_day: null, spend: { enabled: false } }), [], 'a plan with no limits');
+  assert.deepEqual(usageRows({ five_hour: null, seven_day: null, extra_usage: { is_enabled: false } }), [], 'a plan with no limits');
 });
 
 test('claude: refreshAccount runs claude to fetch usage at most every 5 minutes, and hides that process', async () => {
@@ -149,23 +149,23 @@ process.stdin.on('end', () => process.exit(0));
   fs.mkdirSync(path.join(home, '.claude/sessions'), { recursive: true });
   write(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: {} }));
   write(path.join(home, 'answer.json'), JSON.stringify({ subscription_type: 'pro', rate_limits_available: true, rate_limits: { five_hour: { utilization: 12 }, model_scoped: [] } }));
-  const claude = createClaude({ home, claudeCommands: [path.join(home, 'missing'), fake] });
+  const claude = createClaude({ home, claudeCommand: fake });
 
   const fetching = claude.refreshAccount();
   assert.equal(claude.refreshAccount(), undefined, 'one fetch at a time');
   while (!fs.existsSync(path.join(home, '.claude/sessions/helper.json'))) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.deepEqual(claude.live(), [], 'the helper is not an agent');
-  assert.equal(await fetching, true, 'falls back past a missing command');
+  assert.equal(await fetching, true);
   assert.match(fs.readFileSync(log, 'utf8'), /--no-session-persistence/);
   assert.equal(claude.refreshAccount(), undefined, 'tried less than 5 minutes ago');
   const { plan, limits, note } = claude.account();
-  assert.deepEqual({ plan, limits, note }, { plan: 'Pro', limits: [{ label: 'Session', percent: 12, resetsAt: undefined }], note: undefined }, 'the answer beats the saved copy');
+  assert.deepEqual({ plan, limits, note }, { plan: '', limits: [{ label: 'Session', percent: 12, resetsAt: undefined }], note: undefined });
 
 
   // An API key (or Bedrock, Vertex) login: no account in ~/.claude.json and no plan limits.
   write(path.join(home, '.claude.json'), JSON.stringify({}));
   write(path.join(home, 'answer.json'), JSON.stringify({ subscription_type: null, rate_limits_available: false, rate_limits: null }));
-  const api = createClaude({ home, claudeCommands: [fake] });
+  const api = createClaude({ home, claudeCommand: fake });
   assert.equal(api.account(), undefined, 'nothing to show before the first answer');
   assert.equal(await api.refreshAccount(), true);
   assert.deepEqual(api.account(), { name: '', email: '', plan: 'API', limits: [], note: 'No plan limits: usage is billed per token.' });

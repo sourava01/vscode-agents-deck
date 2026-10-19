@@ -244,8 +244,7 @@ function createCodex({ home }) {
       }
       const latest = rollouts(Date.now() - 7 * DAY_MS)[0];
       const rateLimits = latest ? transcripts.read(latest.file)?.rateLimits : undefined;
-      // The plan Codex last reported beats the one in the ID token, which is only as new as the last sign-in.
-      const plan = rateLimits?.plan_type ?? claims['https://api.openai.com/auth']?.chatgpt_plan_type;
+      const plan = claims['https://api.openai.com/auth']?.chatgpt_plan_type;
       return { name: oneLine(claims.name), email: oneLine(claims.email), plan: plan ? planLabel(plan) : '', ...codexUsage(rateLimits) };
     },
   };
