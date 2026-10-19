@@ -60,7 +60,7 @@ test('JsonlFollower reads appended lines only, waits for half-written lines, and
 
   // A large file is read in chunks; a character split between chunks or between reads still decodes.
   const big = path.join(tempHome(), 'big.jsonl');
-  const lines = Array.from({ length: 4000 }, (_, i) => `${'é'.repeat(300 + (i % 7))}✓${i}`);
+  const lines = [...Array.from({ length: 4000 }, (_, i) => `${'é'.repeat(300 + (i % 7))}✓${i}`), 'x'.repeat(3 * 1024 * 1024), 'last'];
   const text = lines.map((l) => `${l}\n`).join('');
   const bytes = Buffer.from(text);
   const cut = bytes.indexOf(Buffer.from('✓')) + 1; // inside the first check mark's bytes
