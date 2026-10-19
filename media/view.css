@@ -35,7 +35,15 @@ button {
 }
 button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
-/* Section header: chevron, title, count on the right (like Claude Code's session groups) */
+/* The panel: Active and Closed Agents above, Accounts pinned to the bottom */
+#root { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-bottom: 10px; } /* min-width: 0 stops long titles widening the panel */
+/* Active Agents takes the free space and Closed Agents a fixed share of it (45% unless resized), so Closed Agents stays
+   in the same place however many agents run. A collapsed section shrinks to its header and the other takes the space. */
+.section:first-child:not(.collapsed) { flex: 1 1 0; }
+.section:last-child:not(.collapsed) { flex: 0 0 var(--closed-share, 45%); } /* set by dragging the resizer */
+#root:has(.section:first-child.collapsed) .section:last-child:not(.collapsed) { flex: 1 1 0; }
+#root:has(.section:last-child.collapsed) { padding-bottom: 4px; }
+
 /* Between Active and Closed Agents while both are open: drag to resize; a line shows on hover */
 .resizer { position: relative; flex: none; height: 10px; cursor: row-resize; touch-action: none; }
 .resizer::after { content: ""; position: absolute; inset: 4px 0 auto; height: 2px; border-radius: 1px; transition: background-color var(--ease); }
@@ -43,6 +51,8 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .resizer:focus-visible { outline: none; }
 #root:has(.section.collapsed) .resizer { display: none; }
 #root:has(.section.collapsed) .resizer + .section { margin-top: 10px; }
+
+/* Section header: chevron, title, count on the right (like Claude Code's session groups) */
 .section-head {
   display: flex;
   align-items: center;
@@ -121,7 +131,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 }
 
 /* Status rail on the left edge */
-.card.busy::before, .card.waiting::before, .card.completed::before {
+.card:is(.busy, .waiting, .completed, .just-closed)::before {
   content: "";
   position: absolute;
   inset: 10px auto 10px 0;
@@ -146,6 +156,10 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
   font-size: 10px;
   font-weight: 600;
 }
+.pill.quiet { background: color-mix(in srgb, var(--fg) 12%, transparent); color: var(--muted); font-weight: 500; }
+/* Which harness runs the agent, at the right of the status line */
+.harness { margin-left: auto; color: var(--muted); font-size: 10.5px; }
+.pill + .harness { margin-left: 6px; }
 
 .title, .body { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .title { font-size: 13px; font-weight: 600; line-height: 18px; }
@@ -157,7 +171,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .card.closed { background: transparent; box-shadow: 0 0 0 1px var(--hairline); }
 .card.closed:hover { background: var(--surface); }
 .card.closed .title { font-weight: 500; }
-.card.just-closed::before { content: ""; position: absolute; inset: 10px auto 10px 0; width: 3px; border-radius: 0 3px 3px 0; background: var(--theme-accent); }
+.card.just-closed::before { background: var(--theme-accent); }
 .resume { display: none; margin-left: auto; color: var(--accent); font-size: 10.5px; font-weight: 600; }
 .pill ~ .resume { margin-left: 6px; }
 .card.closed:is(:hover, :focus-visible) .harness { display: none; }
@@ -176,14 +190,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 }
 .more:hover { background: var(--surface); }
 
-/* Account and usage, pinned to the bottom */
-#root { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; padding-bottom: 10px; } /* min-width: 0 stops long titles widening the panel */
-/* Active Agents takes the free space and Closed Agents a fixed share of it (45% unless resized), so Closed Agents stays
-   in the same place however many agents run. A collapsed section shrinks to its header and the other takes the space. */
-.section:first-child:not(.collapsed) { flex: 1 1 0; }
-.section:last-child:not(.collapsed) { flex: 0 0 var(--closed-share, 45%); } /* set by dragging the resizer */
-#root:has(.section:first-child.collapsed) .section:last-child:not(.collapsed) { flex: 1 1 0; }
-#root:has(.section:last-child.collapsed) { padding-bottom: 4px; }
+/* Accounts and usage limits */
 .account {
   flex: none;
   max-height: 45vh;
@@ -197,6 +204,7 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .account .section-head { margin-bottom: 2px; }
 .account.collapsed { padding-bottom: 2px; }
 .account.collapsed .account-body { display: none; }
+.account-card + .account-card { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline); }
 .plan {
   margin-left: auto;
   padding: 0 7px;
@@ -225,9 +233,3 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0ms !important; }
 }
-
-/* Which harness runs the agent, at the right of the status line */
-.harness { margin-left: auto; color: var(--muted); font-size: 10.5px; }
-.pill + .harness { margin-left: 6px; }
-.pill.quiet { background: color-mix(in srgb, var(--fg) 12%, transparent); color: var(--muted); font-weight: 500; }
-.account-card + .account-card { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline); }
