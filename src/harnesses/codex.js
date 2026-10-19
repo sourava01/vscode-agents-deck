@@ -41,7 +41,7 @@ function scan(line, state) {
     }
     if (p.type === 'user_message') {
       state.promptEvents = (state.promptEvents ?? 0) + 1;
-      Object.assign(state, { promptSeq: state.seq, promptAt: at });
+      state.promptSeq = state.seq;
       state.firstPrompt ??= oneLine(p.message).slice(0, 80);
     } else if (p.type === 'agent_message') {
       state.reply = oneLine(p.message).slice(0, 300);
@@ -58,7 +58,7 @@ function scan(line, state) {
     const text = textOf(p.content, 'input_text').trim();
     if (text && !text.startsWith('<')) {
       state.promptItems = (state.promptItems ?? 0) + 1;
-      Object.assign(state, { promptSeq: state.seq, promptAt: at });
+      state.promptSeq = state.seq;
       state.firstPrompt ??= oneLine(text).slice(0, 80);
     }
   } else if (p.type === 'message' && p.role === 'assistant') {
@@ -72,7 +72,6 @@ function scan(line, state) {
 
 const summarize = (s) => ({
   used: s.firstPrompt !== undefined,
-  promptAt: s.promptAt,
   firstPrompt: s.firstPrompt,
   // How many messages you sent. Codex records each as an event and as a message; older versions only as a message.
   prompts: Math.max(s.promptEvents ?? 0, s.promptItems ?? 0),
@@ -216,8 +215,6 @@ function createCodex({ home }) {
           status: info.status,
           waitingFor: info.waitingFor,
           statusSince: info.statusAt ?? proc.startedAt,
-          startedAt: proc.startedAt,
-          lastInputAt: info.promptAt ?? proc.startedAt,
           tool: info.tool,
           reply: info.reply,
         };

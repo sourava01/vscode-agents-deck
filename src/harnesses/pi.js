@@ -26,7 +26,7 @@ function scan(line, state) {
   if (role === 'user') {
     state.prompts = (state.prompts ?? 0) + 1;
     state.firstPrompt ??= oneLine(textOf(content)).slice(0, 80);
-    Object.assign(state, { promptSeq: state.seq, promptAt: at, status: 'busy', statusAt: at });
+    Object.assign(state, { promptSeq: state.seq, status: 'busy', statusAt: at });
   } else if (role === 'toolResult') {
     Object.assign(state, { status: 'busy', statusAt: at });
   } else if (role === 'assistant') {
@@ -43,7 +43,6 @@ function scan(line, state) {
 const summarize = (s) => ({
   id: UUID.test(s.id) ? s.id : undefined,
   used: s.firstPrompt !== undefined || Boolean(s.name),
-  promptAt: s.promptAt,
   prompts: s.prompts ?? 0, // how many messages you sent
   title: s.name || s.firstPrompt || '',
   status: s.status ?? 'idle',
@@ -86,8 +85,6 @@ function createPi({ home }) {
             title: info.title || 'New session',
             status: info.status,
             statusSince: info.statusAt ?? proc.startedAt,
-            startedAt: proc.startedAt,
-            lastInputAt: info.promptAt ?? proc.startedAt,
             tool: info.tool,
             reply: info.reply,
           };

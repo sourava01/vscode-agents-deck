@@ -17,6 +17,7 @@ const iso = (t) => new Date(t).toISOString();
 const claudePrompt = (text) => ({ type: 'user', message: { role: 'user', content: text } });
 const claudeReply = (text) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text }] } });
 const claudeTool = (name, input) => ({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', name, input }] } });
+const running = { table: new Map([[process.pid, {}]]) }; // `ps` lists only this test's process
 
 test('claude: live sessions from the registry, with transcript details and background sessions', () => {
   const home = tempHome();
@@ -31,9 +32,9 @@ test('claude: live sessions from the registry, with transcript details and backg
   write(path.join(projectDir(home, cwd), `${id(1)}.jsonl`), jsonl(
     claudePrompt('fix   the login'), { type: 'ai-title', aiTitle: 'Login fix' }, claudeTool('Bash', { description: 'Run tests' }), claudeReply('Running **now**.')));
 
-  const [one, two] = createClaude({ home }).live();
+  const [one, two] = createClaude({ home }).live(running);
   assert.deepEqual(one, {
-    sessionId: id(1), pid: process.pid, cwd, title: 'Login fix', status: 'busy', waitingFor: undefined, statusSince: 9, startedAt: 5, lastInputAt: 5,
+    sessionId: id(1), pid: process.pid, cwd, title: 'Login fix', status: 'busy', waitingFor: undefined, statusSince: 9,
     tool: { name: 'Bash', detail: 'Run tests' }, reply: 'Running now.', background: false, attach: undefined, forkedFrom: undefined, chatTab: false,
   });
   assert.equal(two.title, 'fork task');
@@ -211,7 +212,7 @@ test('codex: status from events, tool calls, reply, and stale tools', () => {
 
   fs.appendFileSync(file, jsonl(item(t + 5, { type: 'function_call_output' }), event(t + 6, { type: 'agent_message', message: 'All green.' }), event(t + 7, { type: 'task_complete' })));
   [agent] = codex.live({ table, cwds });
-  assert.deepEqual([agent.status, agent.reply, agent.statusSince, agent.lastInputAt], ['idle', 'All green.', t + 7, t + 1]);
+  assert.deepEqual([agent.status, agent.reply, agent.statusSince], ['idle', 'All green.', t + 7]);
 
   fs.appendFileSync(file, jsonl(event(t + 8, { type: 'user_message', message: 'next' })));
   assert.equal(codex.live({ table, cwds })[0].tool, undefined, 'a tool from before the latest prompt is stale');
@@ -307,7 +308,7 @@ test('pi: folder naming, status, tools, names, live matching and closed sessions
   const pi = createPi({ home });
 
   let [agent] = pi.live({ table, cwds });
-  assert.deepEqual([agent.sessionId, agent.title, agent.status, agent.tool, agent.lastInputAt], [id(2), 'write docs', 'busy', { name: 'bash', detail: 'ls' }, t + 1]);
+  assert.deepEqual([agent.sessionId, agent.title, agent.status, agent.tool, agent.statusSince], [id(2), 'write docs', 'busy', { name: 'bash', detail: 'ls' }, t + 2]);
 
   fs.appendFileSync(file, jsonl(
     piMessage(t + 3, { role: 'toolResult', toolName: 'bash', content: [] }),

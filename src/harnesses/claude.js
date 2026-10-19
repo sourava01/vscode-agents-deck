@@ -52,7 +52,6 @@ function summarize({ prompts, found: { customTitle, aiTitle, prompt, tool, reply
   };
   const toolBlock = lastBlock(tool, 'tool_use');
   return {
-    promptAt: Date.parse(record(prompt)?.timestamp) || undefined,
     title: oneLine(record(customTitle)?.customTitle) || oneLine(record(aiTitle)?.aiTitle) || promptText(record(prompt)?.message?.content).slice(0, 80),
     used: Boolean(prompt || customTitle || aiTitle),
     prompts, // how many messages you sent
@@ -198,8 +197,6 @@ function createClaude({ home, claudeCommand = 'claude' }) {
           status: s.waitingFor ? 'waiting' : s.status === 'busy' ? 'busy' : 'idle',
           waitingFor: oneLine(s.waitingFor) || undefined,
           statusSince: s.statusUpdatedAt,
-          startedAt: s.startedAt ?? 0,
-          lastInputAt: info.promptAt ?? s.startedAt ?? 0,
           tool: info.tool,
           reply: info.reply,
           background,
