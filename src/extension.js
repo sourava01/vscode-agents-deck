@@ -51,9 +51,10 @@ class AgentsView {
   #moves = new MoveTracker(MOVED_MARK_MS);
   #attachTerminals = new Map(); // agent key -> terminal opened with `claude attach`
   #windowKeys = new Set(); // agents shown in this window so far, whose forks belong here too
-  #active = new Map(); // agent key -> agent, for clicks
-  #closed = [];
+  #active = []; // Active Agents, in order
+  #closed = []; // every closed session, newest first; undefined while Closed Agents is turned off
   #closedAt = 0;
+  #accounts; // undefined while Accounts is turned off
   #limit = PAGE_SIZE;
   #query = '';
   #refreshing = Promise.resolve(); // refreshes run one at a time
@@ -94,38 +95,43 @@ class AgentsView {
     if (config.accounts) for (const h of harnesses) h.refreshAccount?.(refetchUsage)?.then(() => this.refresh());
     const { table, sessions } = await liveSessions(harnesses);
 
-    const active = this.#completion.apply(await this.#activeAgents(table, sessions, config.sources));
-    active.sort(byStatus);
-    this.#active = new Map(active.map((agent) => [agent.key, agent]));
+    this.#active = this.#completion.apply(await this.#activeAgents(table, sessions, config.sources)).sort(byStatus);
     const now = Date.now();
     // An agent that left Active belongs in Closed Agents now (and a resumed one no longer does), so re-read those too.
-    const moved = this.#moves.update(new Set(this.#active.keys()), new Set(this.#closed.map((s) => s.key)), now);
+    const moved = this.#moves.update(new Set(this.#active.map((a) => a.key)), new Set(this.#closed?.map((s) => s.key)), now);
 
-    if (config.closedMaxAgeDays === 0) this.#closed = [];
-    else if (includeClosed || moved || now - this.#closedAt > CLOSED_REFRESH_MS) {
+    if (config.closedMaxAgeDays === 0) this.#closed = undefined;
+    else if (!this.#closed || includeClosed || moved || now - this.#closedAt > CLOSED_REFRESH_MS) {
       const live = new Set(sessions.map((s) => s.sessionId).filter(Boolean));
       const since = now - config.closedMaxAgeDays * DAY_MS;
-      this.#closed = searchClosed(harnesses.flatMap((h) => h.closed({ roots: roots(), since, live })
+      this.#closed = harnesses.flatMap((h) => h.closed({ roots: roots(), since, live })
         .filter((s) => !config.closedHideShort || s.prompts >= MIN_PROMPTS)
-        .map((s) => tagged(h, s))), this.#query);
+        .map((s) => tagged(h, s)))
+        .sort((a, b) => b.lastActivity - a.lastActivity);
       this.#closedAt = now;
     }
+    this.#accounts = config.accounts ? harnesses.flatMap((h) => {
+      const account = h.account();
+      return account ? [{ harness: h.label, ...account }] : [];
+    }) : undefined;
+    this.#post();
+  }
 
+  /** Sends the panel what it shows. Searching and "Show more" only post again: they need nothing re-read. */
+  #post() {
     // Sessions that just closed go first, so they're easy to find even if their last message was long ago.
     const justClosed = (s) => this.#moves.moved(s.key, 'closed');
-    const closed = [...this.#closed.filter(justClosed), ...this.#closed.filter((s) => !justClosed(s))];
+    const matches = this.#closed && searchClosed(this.#closed, this.#query);
+    const closed = matches && [...matches.filter(justClosed), ...matches.filter((s) => !justClosed(s))];
     this.view.webview.postMessage({
-      now,
-      active: active.map(({ terminal, ...agent }) => ({ ...agent, resumed: this.#moves.moved(agent.key, 'active') })),
-      closed: config.closedMaxAgeDays === 0 ? undefined : {
+      now: Date.now(),
+      active: this.#active.map(({ terminal, ...agent }) => ({ ...agent, resumed: this.#moves.moved(agent.key, 'active') })),
+      closed: closed && {
         agents: closed.slice(0, this.#limit).map(({ resume, ...s }) => ({ ...s, justClosed: justClosed(s) })),
         total: closed.length,
         hasMore: closed.length > this.#limit,
       },
-      accounts: config.accounts ? harnesses.flatMap((h) => {
-        const account = h.account();
-        return account ? [{ harness: h.label, ...account }] : [];
-      }) : undefined,
+      accounts: this.#accounts,
     });
   }
 
@@ -171,13 +177,15 @@ class AgentsView {
         return this.refresh(true);
       case 'more':
         this.#limit += PAGE_SIZE;
-        return this.refresh(true);
+        return this.#post();
       case 'search':
         this.#query = String(msg.query ?? '');
         this.#limit = PAGE_SIZE;
-        return this.refresh(true);
-      case 'open':
-        return msg.section === 'active' ? this.#openActive(this.#active.get(msg.key)) : this.#resume(this.#closed.find((s) => s.key === msg.key));
+        return this.#post();
+      case 'open': {
+        const find = (list) => list?.find((s) => s.key === msg.key);
+        return msg.section === 'active' ? this.#openActive(find(this.#active)) : this.#resume(find(this.#closed));
+      }
     }
   }
 

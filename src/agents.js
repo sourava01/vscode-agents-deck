@@ -10,12 +10,10 @@ const RANK = { waiting: 0, completed: 1, busy: 2, idle: 3 };
 // By status, then the one whose status changed most recently first (the time shown on its card).
 const byStatus = (a, b) => RANK[a.status] - RANK[b.status] || (b.statusSince ?? 0) - (a.statusSince ?? 0);
 
-/** Closed sessions whose title or last reply contains `query` (case-insensitive), newest first. */
+/** Closed sessions whose title or last reply contains `query` (case-insensitive), in the same order. */
 function searchClosed(sessions, query) {
   const q = query.trim().toLowerCase();
-  return sessions
-    .filter((s) => `${s.title} ${s.reply}`.toLowerCase().includes(q))
-    .sort((a, b) => b.lastActivity - a.lastActivity);
+  return q ? sessions.filter((s) => `${s.title} ${s.reply}`.toLowerCase().includes(q)) : sessions;
 }
 
 /**

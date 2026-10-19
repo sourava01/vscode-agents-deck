@@ -98,7 +98,7 @@ test('chatTabMatches, byStatus and searchClosed', () => {
   const agents = [{ status: 'idle', statusSince: 1 }, { status: 'busy', statusSince: 1 }, { status: 'busy', statusSince: 2 }, { status: 'completed', statusSince: 1 }, { status: 'waiting', statusSince: 1 }, { status: 'busy' }];
   assert.deepEqual(agents.sort(byStatus).map((a) => `${a.status}${a.statusSince ?? ''}`), ['waiting1', 'completed1', 'busy2', 'busy1', 'busy', 'idle1'], 'latest status change first within a status');
   const sessions = [{ title: 'Deploy api', reply: 'Done.', lastActivity: 1 }, { title: 'Fix test', reply: 'Fixed it.', lastActivity: 2 }];
-  assert.deepEqual(searchClosed(sessions, '').map((s) => s.title), ['Fix test', 'Deploy api']);
+  assert.equal(searchClosed(sessions, ''), sessions, 'no query: every session, as is');
   assert.deepEqual(searchClosed(sessions, '  FIXED ').map((s) => s.title), ['Fix test']);
 });
 
