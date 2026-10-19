@@ -72,16 +72,15 @@ const USAGE_REQUEST = `${JSON.stringify({ type: 'control_request', request_id: '
 const USAGE_TIMEOUT_MS = 30000;
 
 /**
- * Runs `command` (claude) to fetch the usage limits; `onStart(pid)` gets its process ID. Resolves to Claude Code's
- * answer (subscription_type, rate_limits_available, rate_limits), or undefined if it didn't answer.
+ * Runs `command` (claude) to fetch the usage limits. Resolves to Claude Code's answer (subscription_type,
+ * rate_limits_available, rate_limits), or undefined if it didn't answer.
  */
-function fetchUsage(command, onStart) {
+function fetchUsage(command) {
   return new Promise((resolve) => {
     const child = spawn(command, USAGE_ARGS, { cwd: os.tmpdir(), stdio: ['pipe', 'pipe', 'ignore'] });
     const timer = setTimeout(() => child.kill(), USAGE_TIMEOUT_MS);
     let answer;
     let rest = '';
-    child.on('spawn', () => onStart(child.pid));
     child.on('error', () => {
       clearTimeout(timer);
       resolve(undefined);
@@ -147,7 +146,6 @@ function usageRows(u) {
 }
 
 function createClaude({ home, claudeCommand = 'claude' }) {
-  let usagePid; // the `claude` process fetching usage, which registers itself as a session while it runs
   let usageFetch;
   let usageTriedAt = 0;
   let usage; // the latest get_usage result: { answer } or { failed: true }
@@ -192,7 +190,8 @@ function createClaude({ home, claudeCommand = 'claude' }) {
 
     live() {
       return registeredSessions().flatMap((s) => {
-        if (s.pid === usagePid) return [];
+        // Not agents: `claude -p` runs (scripts, evals, and this panel's own usage fetch) register too.
+        if (s.entrypoint === 'sdk-cli') return [];
         const info = transcript(s.cwd, s.sessionId);
         // Not agents yet: spare processes Claude Code starts ahead of time, and the process the Claude Code
         // extension starts when you open its panel, before you've sent anything.
@@ -243,11 +242,10 @@ function createClaude({ home, claudeCommand = 'claude' }) {
       const every = usage?.answer?.rate_limits_available === false ? USAGE_RETRY_NO_LIMITS_MS : USAGE_REFRESH_MS;
       if (usageFetch || (!force && now - usageTriedAt < every)) return undefined;
       usageTriedAt = now;
-      usageFetch = fetchUsage(claudeCommand, (pid) => { usagePid = pid; }).then((answer) => {
+      usageFetch = fetchUsage(claudeCommand).then((answer) => {
         usage = answer ? { answer } : { failed: true };
         return true;
       }).finally(() => {
-        usagePid = undefined;
         usageFetch = undefined;
       });
       return usageFetch;

@@ -149,7 +149,7 @@ test('claude: refreshAccount runs claude to fetch usage at most every 5 minutes,
   const fake = write(path.join(home, 'fake-claude'), `#!/usr/bin/env node
 const fs = require('fs');
 fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(' ') + '\\n');
-fs.writeFileSync(${JSON.stringify(path.join(home, '.claude/sessions/helper.json'))}, JSON.stringify({ pid: process.pid, sessionId: '${id(9)}', cwd: '/tmp' }));
+fs.writeFileSync(${JSON.stringify(path.join(home, '.claude/sessions/helper.json'))}, JSON.stringify({ pid: process.pid, sessionId: '${id(9)}', cwd: '/tmp', entrypoint: 'sdk-cli' }));
 process.stdin.once('data', (line) => {
   const { request_id } = JSON.parse(line);
   const response = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(home, 'answer.json'))}, 'utf8'));
@@ -166,7 +166,7 @@ process.stdin.on('end', () => process.exit(0));
   const fetching = claude.refreshAccount();
   assert.equal(claude.refreshAccount(), undefined, 'one fetch at a time');
   while (!fs.existsSync(path.join(home, '.claude/sessions/helper.json'))) await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.deepEqual(claude.live(), [], 'the helper is not an agent');
+  assert.deepEqual(claude.live(), [], 'the helper, like any claude -p run, is not an agent');
   assert.equal(await fetching, true);
   assert.match(fs.readFileSync(log, 'utf8'), /--no-session-persistence/);
   assert.equal(claude.refreshAccount(), undefined, 'tried less than 5 minutes ago');
