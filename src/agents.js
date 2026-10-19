@@ -1,5 +1,4 @@
 // Agent logic that doesn't need VS Code: ordering, search, chat-tab matching and the Completed marker.
-const { findOwner } = require('./processes');
 
 /** Whether a chat tab belongs to a session: Claude Code titles tabs with the session title, cut to 24 characters plus "…". */
 function chatTabMatches(label, title) {
@@ -75,23 +74,4 @@ class MoveTracker {
   }
 }
 
-/**
- * Folds agents started by another agent's process (such as `claude -p` run by a script from its Bash tool) into the
- * top-level agent: they get no card of their own, and that agent's `subAgents` counts them along with its running
- * workflow's sub-agents. Background sessions stay separate: Claude Code's daemon runs them under whichever `claude`
- * started it.
- */
-function foldSubAgents(sessions, table) {
-  const byPid = new Map(sessions.filter((s) => !s.background).map((s) => [s.pid, s]));
-  const parentOf = (s) => byPid.get(findOwner(table.get(s.pid)?.ppid, table, (pid) => byPid.has(pid)));
-  const counts = new Map(); // top-level agent -> sub-agents folded into it
-  const tops = sessions.filter((s) => {
-    let top = s;
-    if (!s.background) for (let p = parentOf(s); p; p = parentOf(p)) top = p;
-    if (top !== s) counts.set(top, (counts.get(top) ?? 0) + 1);
-    return top === s;
-  });
-  return tops.map((s) => ({ ...s, subAgents: (s.workflowAgents ?? 0) + (counts.get(s) ?? 0) }));
-}
-
-module.exports = { chatTabMatches, byStatus, searchClosed, CompletionTracker, MoveTracker, foldSubAgents };
+module.exports = { chatTabMatches, byStatus, searchClosed, CompletionTracker, MoveTracker };
