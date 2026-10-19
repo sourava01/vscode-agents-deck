@@ -57,6 +57,21 @@ test('JsonlFollower reads appended lines only, waits for half-written lines, and
   assert.deepEqual(seen, ['a', 'b', 'half-line', 'c']);
   write(file, 'fresh\n');
   assert.equal(follower.read(file), 1);
+
+  // A large file is read in chunks; a character split between chunks or between reads still decodes.
+  const big = path.join(tempHome(), 'big.jsonl');
+  const lines = Array.from({ length: 4000 }, (_, i) => `${'é'.repeat(300 + (i % 7))}✓${i}`);
+  const text = lines.map((l) => `${l}\n`).join('');
+  const bytes = Buffer.from(text);
+  const cut = bytes.indexOf(Buffer.from('✓')) + 1; // inside the first check mark's bytes
+  const got = [];
+  const reader = new JsonlFollower({ initialState: () => null, scan: (line) => got.push(line), summarize: () => got.length });
+  write(big, bytes.subarray(0, cut));
+  reader.read(big);
+  fs.appendFileSync(big, bytes.subarray(cut));
+  assert.equal(bytes[cut + 1024 * 1024] & 0xc0, 0x80, 'the second chunk starts inside a character');
+  assert.equal(reader.read(big), lines.length);
+  assert.deepEqual(got, lines);
 });
 
 test('readConfig: defaults, and bad values fall back or are clamped', () => {
