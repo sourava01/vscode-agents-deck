@@ -136,7 +136,7 @@ class AgentsView {
   async #activeAgents(table, sessions, sources) {
     const terminals = vscode.window.terminals;
     const pids = await Promise.all(terminals.map(terminalPid));
-    const terminalByPid = new Map(pids.map((pid, i) => [pid, terminals[i]]));
+    const terminalByPid = new Map(pids.flatMap((pid, i) => (pid === undefined ? [] : [[pid, terminals[i]]])));
     const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
     const viewedTerminal = tab?.input instanceof vscode.TabInputTerminal ? vscode.window.activeTerminal : undefined;
     const chatLabel = tab?.input instanceof vscode.TabInputWebview && tab.input.viewType.endsWith('claudeVSCodePanel') ? tab.label : undefined;
