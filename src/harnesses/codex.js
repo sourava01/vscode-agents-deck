@@ -168,8 +168,8 @@ function createCodex({ home }) {
   /** Rollouts in the day folders from `since` to today, newest first. Subagent threads are left out. */
   function rollouts(since) {
     const files = [];
-    for (let t = Date.now(); t >= since - DAY_MS; t -= DAY_MS) {
-      const d = new Date(t);
+    // By calendar day: around a clock change, a day isn't 24 hours.
+    for (const d = new Date(); d.getTime() >= since - DAY_MS; d.setDate(d.getDate() - 1)) {
       const dir = path.join(sessionsDir, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'));
       for (const name of readDir(dir)) {
         const file = path.join(dir, name);
