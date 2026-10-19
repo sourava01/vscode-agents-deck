@@ -133,10 +133,11 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .waiting { --status: var(--waiting); }
 .completed { --status: var(--vscode-charts-green, #89d185); }
 
-.head { display: flex; align-items: center; gap: 6px; min-height: 16px; color: var(--muted); font-size: 11px; }
+.head { display: flex; align-items: center; gap: 6px; min-height: 16px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--status, var(--muted)); }
 .state { color: var(--status, var(--muted)); font-weight: 600; }
 .pill {
+  flex: none;
   margin-left: auto;
   padding: 1px 6px;
   border-radius: 999px;
