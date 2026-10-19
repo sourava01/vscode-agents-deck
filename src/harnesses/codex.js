@@ -40,7 +40,8 @@ function scan(line, state) {
       return;
     }
     if (p.type === 'user_message') {
-      Object.assign(state, { promptSeq: state.seq, promptAt: at });
+      state.promptEvents = (state.promptEvents ?? 0) + 1;
+      state.promptSeq = state.seq;
       state.firstPrompt ??= oneLine(p.message).slice(0, 80);
     } else if (p.type === 'agent_message') {
       state.reply = oneLine(p.message).slice(0, 300);
@@ -56,7 +57,8 @@ function scan(line, state) {
   if (p.type === 'message' && p.role === 'user') {
     const text = textOf(p.content, 'input_text').trim();
     if (text && !text.startsWith('<')) {
-      Object.assign(state, { promptSeq: state.seq, promptAt: timeOf(record.timestamp) });
+      state.promptItems = (state.promptItems ?? 0) + 1;
+      state.promptSeq = state.seq;
       state.firstPrompt ??= oneLine(text).slice(0, 80);
     }
   } else if (p.type === 'message' && p.role === 'assistant') {
@@ -70,8 +72,9 @@ function scan(line, state) {
 
 const summarize = (s) => ({
   used: s.firstPrompt !== undefined,
-  promptAt: s.promptAt,
   firstPrompt: s.firstPrompt,
+  // How many messages you sent. Codex records each as an event and as a message; older versions only as a message.
+  prompts: Math.max(s.promptEvents ?? 0, s.promptItems ?? 0),
   status: s.status ?? 'idle',
   waitingFor: s.status === 'waiting' ? s.waitingFor : undefined,
   statusAt: s.statusAt,
@@ -91,6 +94,55 @@ function limitLabel(minutes) {
   if (!Number.isFinite(minutes)) return 'Limit';
   if (minutes === 7 * 24 * 60) return 'Weekly';
   return minutes < 24 * 60 ? `${Math.round(minutes / 60)}h` : `${Math.round(minutes / (24 * 60))}d`;
+}
+
+// Codex's plan types (PlanType in codex-rs/protocol/src/account.rs); others are shown title-cased.
+const PLANS = {
+  prolite: 'Pro Lite',
+  promax: 'Pro Max',
+  self_serve_business_prolite: 'Business',
+  self_serve_business_usage_based: 'Business',
+  ent26: 'Enterprise',
+  enterprise_cbp_automation: 'Enterprise',
+  enterprise_cbp_usage_based: 'Enterprise',
+  edu_plus: 'Edu',
+};
+const planLabel = (plan) => PLANS[plan] ?? oneLine(String(plan ?? '')).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+
+// Why Codex stopped answering, from the rate limits it records (RateLimitReachedType).
+const REACHED = {
+  rate_limit_reached: 'Usage limit reached.',
+  workspace_owner_credits_depleted: 'Workspace credits used up.',
+  workspace_member_credits_depleted: 'Workspace credits used up. Ask your workspace owner for more.',
+  workspace_owner_usage_limit_reached: 'Workspace usage limit reached.',
+  workspace_member_usage_limit_reached: 'Workspace usage limit reached. Ask your workspace owner to raise it.',
+};
+
+/** How credits cover usage, for plans paid with credits (business and enterprise plans often have no time windows). */
+function creditsNote(credits) {
+  if (credits.unlimited) return 'Unlimited credits.';
+  if (credits.balance) return `Credits: ${oneLine(String(credits.balance))}`;
+  return credits.has_credits ? 'No usage limits: usage is paid with credits.' : 'No credits left.';
+}
+
+/** The rows and note for Codex's latest rate limits: its time windows, a personal spend limit, and otherwise credits. */
+function codexUsage(r) {
+  const limits = [r?.primary, r?.secondary]
+    .filter((l) => Number.isFinite(l?.used_percent))
+    .map((l) => ({ label: limitLabel(l.window_minutes), percent: l.used_percent, resetsAt: Number.isFinite(l.resets_at) ? l.resets_at * 1000 : undefined }));
+  const spend = r?.individual_limit;
+  if (Number.isFinite(spend?.remaining_percent)) {
+    limits.push({
+      label: 'Spend limit',
+      percent: 100 - spend.remaining_percent,
+      detail: `${oneLine(String(spend.used))} of ${oneLine(String(spend.limit))}`,
+      resetsAt: Number.isFinite(spend.resets_at) ? spend.resets_at * 1000 : undefined,
+    });
+  }
+  const note = REACHED[r?.rate_limit_reached_type]
+    ?? (r?.spend_control_reached === true ? 'Spend limit reached.' : undefined)
+    ?? (!limits.length && r?.credits ? creditsNote(r.credits) : undefined);
+  return { limits, note };
 }
 
 // The interactive CLI, not its background app-server.
@@ -116,8 +168,8 @@ function createCodex({ home }) {
   /** Rollouts in the day folders from `since` to today, newest first. Subagent threads are left out. */
   function rollouts(since) {
     const files = [];
-    for (let t = Date.now(); t >= since - DAY_MS; t -= DAY_MS) {
-      const d = new Date(t);
+    // By calendar day: around a clock change, a day isn't 24 hours.
+    for (const d = new Date(); d.getTime() >= since - DAY_MS; d.setDate(d.getDate() - 1)) {
       const dir = path.join(sessionsDir, String(d.getFullYear()), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0'));
       for (const name of readDir(dir)) {
         const file = path.join(dir, name);
@@ -163,8 +215,6 @@ function createCodex({ home }) {
           status: info.status,
           waitingFor: info.waitingFor,
           statusSince: info.statusAt ?? proc.startedAt,
-          startedAt: proc.startedAt,
-          lastInputAt: info.promptAt ?? proc.startedAt,
           tool: info.tool,
           reply: info.reply,
         };
@@ -175,7 +225,7 @@ function createCodex({ home }) {
       return rollouts(since).flatMap((r) => {
         if (live.has(r.id) || !roots.includes(r.cwd)) return [];
         const info = transcripts.read(r.file);
-        return info?.used ? [{ sessionId: r.id, cwd: r.cwd, title: titleOf(r.id, info), reply: info.reply, lastActivity: r.mtime, resume: `codex resume ${r.id}` }] : [];
+        return info?.used ? [{ sessionId: r.id, cwd: r.cwd, title: titleOf(r.id, info), reply: info.reply, prompts: info.prompts, lastActivity: r.mtime, resume: `codex resume ${r.id}` }] : [];
       });
     },
 
@@ -183,20 +233,18 @@ function createCodex({ home }) {
     account() {
       const auth = readJson(path.join(root, 'auth.json'));
       const claims = jwtClaims(auth?.tokens?.id_token);
-      if (!claims) return undefined;
-      const plan = oneLine(claims['https://api.openai.com/auth']?.chatgpt_plan_type);
+      if (!claims) {
+        // Signed in with an OpenAI API key: billed per token, no plan limits.
+        return auth?.OPENAI_API_KEY || auth?.auth_mode === 'apikey'
+          ? { name: '', email: '', plan: 'API key', limits: [], note: 'No plan limits: usage is billed per token.' }
+          : undefined;
+      }
       const latest = rollouts(Date.now() - 7 * DAY_MS)[0];
-      const limits = latest ? transcripts.read(latest.file)?.rateLimits : undefined;
-      return {
-        name: oneLine(claims.name),
-        email: oneLine(claims.email),
-        plan: plan && plan[0].toUpperCase() + plan.slice(1),
-        limits: [limits?.primary, limits?.secondary]
-          .filter((l) => Number.isFinite(l?.used_percent))
-          .map((l) => ({ label: limitLabel(l.window_minutes), percent: l.used_percent, resetsAt: Number.isFinite(l.resets_at) ? l.resets_at * 1000 : undefined })),
-      };
+      const rateLimits = latest ? transcripts.read(latest.file)?.rateLimits : undefined;
+      const plan = claims['https://api.openai.com/auth']?.chatgpt_plan_type;
+      return { name: oneLine(claims.name), email: oneLine(claims.email), plan: plan ? planLabel(plan) : '', ...codexUsage(rateLimits) };
     },
   };
 }
 
-module.exports = { createCodex, jwtClaims, limitLabel };
+module.exports = { createCodex, jwtClaims, limitLabel, planLabel, codexUsage };

@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const { promisify } = require('util');
 const execFile = promisify(require('child_process').execFile);
 const { parseProcessTable, parseCwds, findOwner } = require('./processes');
-const { chatTabMatches, byStatus, searchClosed, CompletionTracker } = require('./agents');
+const { chatTabMatches, byStatus, searchClosed, CompletionTracker, MoveTracker } = require('./agents');
 const { readConfig } = require('./config');
 const { within } = require('./util');
 const { createClaude } = require('./harnesses/claude');
@@ -16,6 +16,8 @@ const { createPi } = require('./harnesses/pi');
 
 const PAGE_SIZE = 25;
 const CLOSED_REFRESH_MS = 30000;
+const MIN_PROMPTS = 3; // closed sessions with fewer messages from you are hidden, unless turned off in settings
+const MOVED_MARK_MS = 10 * 60 * 1000; // how long a session that just closed or resumed is marked
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const home = os.homedir();
@@ -28,6 +30,9 @@ const run = (cmd, args) => execFile(cmd, args, { maxBuffer: 16 * 1024 * 1024 }).
 const terminalPid = (terminal) => within(terminal.processId, 500, undefined);
 const roots = () => (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
 const inWorkspace = (dir) => roots().some((root) => dir === root || dir.startsWith(root + path.sep));
+const keyOf = (harness, sessionId) => `${harness}:${sessionId}`;
+// A Codex or pi process whose transcript isn't found yet has no session ID, so it's known by its process ID.
+const tagged = (h, s) => ({ ...s, harness: h.id, harnessLabel: h.label, key: keyOf(h.id, s.sessionId ?? `pid${s.pid}`) });
 
 /** Every enabled harness's running sessions, tagged with the harness. Shared by Active and Closed Agents. */
 async function liveSessions(harnesses) {
@@ -37,21 +42,19 @@ async function liveSessions(harnesses) {
   const cwds = pids.length ? parseCwds(await run('lsof', ['-a', '-p', pids.join(','), '-d', 'cwd', '-Fpn'])) : new Map();
   return {
     table,
-    sessions: harnesses.flatMap((h) => h.live({ table, cwds }).map((s) => ({
-      ...s,
-      harness: h.id,
-      harnessLabel: h.label,
-      key: `${h.id}:${s.sessionId ?? `pid${s.pid}`}`,
-    }))),
+    sessions: harnesses.flatMap((h) => h.live({ table, cwds }).map((s) => tagged(h, s))),
   };
 }
 
 class AgentsView {
   #completion = new CompletionTracker();
+  #moves = new MoveTracker(MOVED_MARK_MS);
   #attachTerminals = new Map(); // agent key -> terminal opened with `claude attach`
-  #active = new Map(); // agent key -> agent, for clicks
-  #closed = [];
+  #windowKeys = new Set(); // agents shown in this window so far, whose forks belong here too
+  #active = []; // Active Agents, in order
+  #closed = []; // every closed session, newest first; undefined while Closed Agents is turned off
   #closedAt = 0;
+  #accounts; // undefined while Accounts is turned off
   #limit = PAGE_SIZE;
   #query = '';
   #refreshing = Promise.resolve(); // refreshes run one at a time
@@ -75,66 +78,94 @@ class AgentsView {
     view.onDidChangeVisibility(() => this.refresh(true));
   }
 
-  /** Re-reads active agents; closed sessions only every 30 seconds unless `includeClosed`. */
-  refresh(includeClosed = false) {
-    this.#refreshing = this.#refreshing.then(() => this.#refresh(includeClosed)).catch(() => {});
+  /**
+   * Re-reads active agents; closed sessions only every 30 seconds, unless `includeClosed` or an agent started or
+   * stopped; and Claude's usage limits only every 5 minutes, unless `refetchUsage`.
+   */
+  refresh(includeClosed = false, refetchUsage = false) {
+    this.#refreshing = this.#refreshing.then(() => this.#refresh(includeClosed, refetchUsage)).catch(() => {});
     return this.#refreshing;
   }
 
-  async #refresh(includeClosed) {
+  async #refresh(includeClosed, refetchUsage) {
     if (!this.view?.visible) return;
     const config = this.getConfig();
     const harnesses = HARNESSES.filter((h) => config.harnesses[h.id]);
+    // Harnesses that refresh their limits on request (Claude) show the new numbers once they have them.
+    if (config.accounts) for (const h of harnesses) h.refreshAccount?.(refetchUsage)?.then(() => this.refresh());
     const { table, sessions } = await liveSessions(harnesses);
 
-    const active = this.#completion.apply(await this.#activeAgents(table, sessions, config.sources));
-    active.sort(byStatus);
-    this.#active = new Map(active.map((agent) => [agent.key, agent]));
+    this.#active = this.#completion.apply(await this.#activeAgents(table, sessions, config.sources)).sort(byStatus);
+    const now = Date.now();
+    // An agent that left Active belongs in Closed Agents now (and a resumed one no longer does), so re-read those too.
+    const moved = this.#moves.update(new Set(this.#active.map((a) => a.key)), new Set(this.#closed?.map((s) => s.key)), now);
 
-    if (config.closedMaxAgeDays === 0) this.#closed = [];
-    else if (includeClosed || Date.now() - this.#closedAt > CLOSED_REFRESH_MS) {
+    if (config.closedMaxAgeDays === 0) this.#closed = undefined;
+    else if (!this.#closed || includeClosed || moved || now - this.#closedAt > CLOSED_REFRESH_MS) {
       const live = new Set(sessions.map((s) => s.sessionId).filter(Boolean));
-      const since = Date.now() - config.closedMaxAgeDays * DAY_MS;
-      this.#closed = searchClosed(harnesses.flatMap((h) => h.closed({ roots: roots(), since, live })
-        .map((s) => ({ ...s, harness: h.id, harnessLabel: h.label, key: `${h.id}:${s.sessionId}` }))), this.#query);
-      this.#closedAt = Date.now();
+      const since = now - config.closedMaxAgeDays * DAY_MS;
+      this.#closed = harnesses.flatMap((h) => h.closed({ roots: roots(), since, live })
+        .filter((s) => !config.closedHideShort || s.prompts >= MIN_PROMPTS)
+        .map((s) => tagged(h, s)))
+        .sort((a, b) => b.lastActivity - a.lastActivity);
+      this.#closedAt = now;
     }
+    this.#accounts = config.accounts ? harnesses.flatMap((h) => {
+      const account = h.account();
+      return account ? [{ harness: h.label, ...account }] : [];
+    }) : undefined;
+    this.#post();
+  }
 
+  /** Sends the panel what it shows. Searching and "Show more" only post again: they need nothing re-read. */
+  #post() {
+    // Sessions that just closed go first, so they're easy to find even if their last message was long ago.
+    const justClosed = (s) => this.#moves.moved(s.key, 'closed');
+    const matches = this.#closed && searchClosed(this.#closed, this.#query);
+    const closed = matches && [...matches.filter(justClosed), ...matches.filter((s) => !justClosed(s))];
     this.view.webview.postMessage({
       now: Date.now(),
-      active: active.map(({ terminal, ...agent }) => agent),
-      closed: config.closedMaxAgeDays === 0 ? undefined
-        : { agents: this.#closed.slice(0, this.#limit).map(({ resume, ...s }) => s), total: this.#closed.length, hasMore: this.#closed.length > this.#limit },
-      accounts: config.accounts ? harnesses.flatMap((h) => {
-        const account = h.account();
-        return account ? [{ harness: h.label, ...account }] : [];
-      }) : undefined,
+      active: this.#active.map(({ terminal, ...agent }) => ({ ...agent, resumed: this.#moves.moved(agent.key, 'active') })),
+      closed: closed && {
+        agents: closed.slice(0, this.#limit).map(({ resume, ...s }) => ({ ...s, justClosed: justClosed(s) })),
+        total: closed.length,
+        hasMore: closed.length > this.#limit,
+      },
+      accounts: this.#accounts,
     });
   }
 
-  /** The sessions that belong to this window: in one of its terminals, its chat panels, or background sessions of its folders. */
+  /**
+   * The sessions that belong to this window: in one of its terminals, its chat panels, or background sessions of its
+   * folders or forked from one of its agents (which stay once shown, even after that agent exits).
+   */
   async #activeAgents(table, sessions, sources) {
     const terminals = vscode.window.terminals;
     const pids = await Promise.all(terminals.map(terminalPid));
-    const terminalByPid = new Map(pids.map((pid, i) => [pid, terminals[i]]));
+    const terminalByPid = new Map(pids.flatMap((pid, i) => (pid === undefined ? [] : [[pid, terminals[i]]])));
     const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
     const viewedTerminal = tab?.input instanceof vscode.TabInputTerminal ? vscode.window.activeTerminal : undefined;
     const chatLabel = tab?.input instanceof vscode.TabInputWebview && tab.input.viewType.endsWith('claudeVSCodePanel') ? tab.label : undefined;
 
-    return sessions.flatMap((session) => {
+    // Background sessions last, so the agents they may be forked from are known by then.
+    const ordered = [...sessions.filter((s) => !s.background), ...sessions.filter((s) => s.background)];
+    return ordered.flatMap((session) => {
       // A terminal's shell among the agent's ancestors means it runs in that terminal; this extension host means it
-      // runs in an extension's chat panel in this window (the chat starts it as a child process).
-      const owner = findOwner(session.pid, table, (pid) => terminalByPid.has(pid) || pid === process.pid);
+      // runs in an extension's chat panel in this window (the chat starts it as a child process). Not for background
+      // sessions: they run under Claude Code's daemon, which descends from whichever terminal's `claude` started it.
+      const owner = session.background ? undefined : findOwner(session.pid, table, (pid) => terminalByPid.has(pid) || pid === process.pid);
       let source;
       let terminal = terminalByPid.get(owner);
       if (terminal) source = 'terminal';
       else if (owner === process.pid) source = 'extension';
-      else if (session.background && inWorkspace(session.cwd)) {
+      else if (session.background && (inWorkspace(session.cwd) || this.#windowKeys.has(session.key)
+        || (session.forkedFrom && this.#windowKeys.has(keyOf(session.harness, session.forkedFrom))))) {
         source = 'background';
         terminal = this.#attachTerminals.get(session.key);
         if (terminal && !terminals.includes(terminal)) terminal = undefined; // closed since
       }
       if (!source || !sources[source]) return [];
+      this.#windowKeys.add(session.key);
       const viewing = terminal ? terminal === viewedTerminal : source === 'extension' && session.chatTab && chatTabMatches(chatLabel, session.title);
       return [{ ...session, source, terminal, viewing }];
     });
@@ -146,13 +177,15 @@ class AgentsView {
         return this.refresh(true);
       case 'more':
         this.#limit += PAGE_SIZE;
-        return this.refresh(true);
+        return this.#post();
       case 'search':
         this.#query = String(msg.query ?? '');
         this.#limit = PAGE_SIZE;
-        return this.refresh(true);
-      case 'open':
-        return msg.section === 'active' ? this.#openActive(this.#active.get(msg.key)) : this.#resume(this.#closed.find((s) => s.key === msg.key));
+        return this.#post();
+      case 'open': {
+        const find = (list) => list?.find((s) => s.key === msg.key);
+        return msg.section === 'active' ? this.#openActive(find(this.#active)) : this.#resume(find(this.#closed));
+      }
     }
   }
 
@@ -197,6 +230,7 @@ function activate(context) {
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('agentsDeck.main', view, { webviewOptions: { retainContextWhenHidden: true } }),
+    vscode.commands.registerCommand('agentsDeck.refresh', () => view.refresh(true, true)), // the title bar's refresh button
     vscode.window.onDidChangeWindowState(refreshSoon),
     vscode.window.onDidChangeActiveTerminal(refreshSoon),
     vscode.window.onDidOpenTerminal(refreshSoon),

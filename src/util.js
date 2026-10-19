@@ -1,5 +1,6 @@
 // Small file and text helpers shared by the harness adapters. Every reader tolerates missing or malformed input.
 const fs = require('fs');
+const { StringDecoder } = require('string_decoder');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -27,6 +28,9 @@ const readDir = (dir) => {
 const mtimeOf = (file) => fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs;
 const oneLine = (text) => (typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : '');
 const timeOf = (iso) => Date.parse(iso) || undefined;
+// A string cut from another one (such as a line from a file chunk) keeps all of the other one in memory; this copy
+// doesn't. For text kept between reads.
+const detach = (text) => Buffer.from(text).toString();
 
 /** A Markdown reply as plain text, for a one-line preview. */
 const plainText = (markdown) => oneLine(String(markdown ?? '')
@@ -75,13 +79,16 @@ function firstLine(file, maxBytes = 4 * 1024 * 1024) {
   }
 }
 
+const CHUNK_BYTES = 1024 * 1024;
+
 /**
  * Follows JSON Lines files that only grow. The first read of a file feeds every line to `scan(line, state)`; later
  * reads feed only what was appended, so polling a large transcript stays cheap. `summarize(state)` turns the
- * accumulated state into the details the panel shows.
+ * accumulated state into the details the panel shows. Files are read in 1 MB chunks, so only the line being read sits
+ * in memory whole, not the transcript.
  */
 class JsonlFollower {
-  #files = new Map(); // file -> { size, rest, state, info }
+  #files = new Map(); // file -> { size, rest, decoder, state, info }; rest holds the pieces of an unfinished line
 
   constructor({ initialState, scan, summarize }) {
     this.initialState = initialState;
@@ -95,26 +102,35 @@ class JsonlFollower {
     let f = this.#files.get(file);
     if (!f || size < f.size) { // new, or rewritten in place
       const state = this.initialState();
-      f = { size: 0, rest: '', state, info: this.summarize(state) };
+      // The decoder holds back a character split between two reads until its other bytes arrive.
+      f = { size: 0, rest: [], decoder: new StringDecoder('utf8'), state, info: this.summarize(state) };
       this.#files.set(file, f);
     }
     if (size === f.size) return f.info;
 
-    // ponytail: reads the new bytes in one buffer; read in chunks if transcripts grow past a few hundred MB.
-    const buf = Buffer.alloc(size - f.size);
+    const buf = Buffer.alloc(Math.min(CHUNK_BYTES, size - f.size));
     const fd = fs.openSync(file, 'r');
     try {
-      fs.readSync(fd, buf, 0, buf.length, f.size);
+      while (f.size < size) {
+        const n = fs.readSync(fd, buf, 0, Math.min(buf.length, size - f.size), f.size);
+        if (n === 0) break; // cut short since the size was taken
+        f.size += n;
+        // A half-written last line waits for the next chunk or read. Its pieces are joined once it ends, so a line
+        // longer than a chunk is copied once, not once per chunk.
+        const text = f.decoder.write(buf.subarray(0, n));
+        const end = text.lastIndexOf('\n');
+        f.rest.push(end === -1 ? text : text.slice(0, end));
+        if (end === -1) continue;
+        const lines = f.rest.join('').split('\n');
+        f.rest = [text.slice(end + 1)];
+        for (const line of lines) if (line) this.scan(line, f.state);
+      }
     } finally {
       fs.closeSync(fd);
     }
-    const lines = (f.rest + buf.toString('utf8')).split('\n');
-    f.rest = lines.pop(); // a half-written last line waits for the next read
-    f.size = size;
-    for (const line of lines) if (line) this.scan(line, f.state);
     f.info = this.summarize(f.state);
     return f.info;
   }
 }
 
-module.exports = { UUID, parseJson, readJson, readDir, mtimeOf, oneLine, timeOf, plainText, toolDetail, within, firstLine, JsonlFollower };
+module.exports = { UUID, parseJson, readJson, readDir, mtimeOf, oneLine, timeOf, detach, plainText, toolDetail, within, firstLine, JsonlFollower };

@@ -43,13 +43,4 @@ function findOwner(pid, table, isOwner) {
   return undefined;
 }
 
-// EPERM means the process exists but belongs to another user.
-const isAlive = (pid) => {
-  try {
-    return process.kill(pid, 0);
-  } catch (err) {
-    return err.code === 'EPERM';
-  }
-};
-
-module.exports = { parseProcessTable, parseCwds, findOwner, isAlive };
+module.exports = { parseProcessTable, parseCwds, findOwner };

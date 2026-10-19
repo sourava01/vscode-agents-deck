@@ -2,7 +2,10 @@
 // re-rendered only when their HTML changes, so the periodic refresh doesn't flicker or steal focus.
 (() => {
   const vscode = acquireVsCodeApi();
-  const collapsed = vscode.getState()?.collapsed ?? {};
+  const saved = vscode.getState() ?? {};
+  const collapsed = saved.collapsed ?? {};
+  let closedShare = Number.isFinite(saved.closedShare) ? saved.closedShare : undefined; // Closed Agents' share, if resized
+  const saveState = () => vscode.setState({ collapsed, closedShare });
   const STATES = { busy: 'Working', waiting: 'Needs input', completed: 'Completed', idle: 'Idle' };
   const WAITING = { 'input needed': 'Waiting for your answer', 'dialog open': 'A dialog is waiting for you' };
   const CHEVRON = '<svg class="chevron" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.7 13.7 5 13l4.6-4.6L5 3.7 5.7 3l5.3 5.4z" fill="currentColor"/></svg>';
@@ -36,7 +39,7 @@
     set(Boolean(collapsed[key]));
     head.addEventListener('click', () => {
       set(!collapsed[key]);
-      vscode.setState({ collapsed });
+      saveState();
     });
     return el;
   }
@@ -57,16 +60,21 @@
       label: `${a.title}, ${STATES[a.status]}`,
       html: `<div class="head"><span class="dot"></span><span class="state">${STATES[a.status]}</span>`
         + (a.statusSince ? `<span class="since">· ${ago(a.statusSince, now)}</span>` : '')
-        + (a.viewing ? '<span class="pill">Viewing</span>' : a.source === 'background' ? '<span class="pill quiet">Background</span>' : '')
+        + (a.viewing ? '<span class="pill">Viewing</span>' : a.resumed ? '<span class="pill">Resumed</span>'
+          : a.source === 'background' ? '<span class="pill quiet">Background</span>' : '')
         + `<span class="harness">${esc(a.harnessLabel)}</span>`
         + `</div><div class="title">${esc(a.title)}</div>${body(a)}`,
     }),
+    // Laid out like an active card: when it was last active and the harness on the status line, which turns into
+    // "Resume ↵" on hover.
     closed: (a, now) => ({
-      cls: 'card closed',
-      label: `${a.title}, resume`,
-      html: `<div class="top"><div class="title">${esc(a.title)}</div>`
-        + `<span class="when" title="${esc(new Date(a.lastActivity).toLocaleString())}">${esc(a.harnessLabel)} · ${ago(a.lastActivity, now)} ago</span>`
-        + '<span class="resume">Resume ↵</span></div>'
+      cls: `card closed${a.justClosed ? ' just-closed' : ''}`,
+      label: `${a.title}, ${a.justClosed ? 'just closed, ' : ''}resume`,
+      html: `<div class="head"><span class="dot"></span><span class="state">Closed</span>`
+        + `<span class="since" title="${esc(new Date(a.lastActivity).toLocaleString())}">· ${ago(a.lastActivity, now)}</span>`
+        + (a.justClosed ? '<span class="pill">Just closed</span>' : '')
+        + `<span class="harness">${esc(a.harnessLabel)}</span><span class="resume">Resume ↵</span>`
+        + `</div><div class="title">${esc(a.title)}</div>`
         + (a.reply ? `<div class="body output">${esc(a.reply)}</div>` : ''),
     }),
   };
@@ -95,6 +103,50 @@
       cards: new Map(), // agent key -> { el, html }
     };
   }
+
+  // Between the two sections while both are open: drag it (or use the arrow keys) to share the space between them, and
+  // double-click it to go back to the default split. The split survives reloads of the panel.
+  const resizer = Object.assign(document.createElement('div'), { className: 'resizer', tabIndex: 0, title: 'Drag to resize. Double-click to reset.' });
+  resizer.setAttribute('role', 'separator');
+  resizer.setAttribute('aria-orientation', 'horizontal');
+  resizer.setAttribute('aria-label', 'Resize Active and Closed Agents');
+  sections.closed.el.before(resizer);
+  const SHARE = { min: 0.15, max: 0.85, step: 0.05, default: 0.45 };
+  const applyShare = () => {
+    if (closedShare === undefined) root.style.removeProperty('--closed-share');
+    else root.style.setProperty('--closed-share', `${closedShare * 100}%`);
+    resizer.ariaValueNow = String(Math.round((closedShare ?? SHARE.default) * 100));
+  };
+  const setShare = (share) => {
+    closedShare = share === undefined ? undefined : Math.min(SHARE.max, Math.max(SHARE.min, share));
+    applyShare();
+    saveState();
+  };
+  applyShare();
+  resizer.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    resizer.setPointerCapture(e.pointerId);
+    resizer.classList.add('dragging');
+    // The share is of #root's content height, which is what Closed Agents' flex-basis percentage is measured against.
+    const style = getComputedStyle(root);
+    const height = root.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+    const bottom = sections.closed.el.getBoundingClientRect().bottom;
+    const move = (ev) => setShare((bottom - ev.clientY) / height);
+    const end = () => {
+      resizer.classList.remove('dragging');
+      resizer.removeEventListener('pointermove', move);
+    };
+    resizer.addEventListener('pointermove', move);
+    resizer.addEventListener('pointerup', end, { once: true });
+    resizer.addEventListener('pointercancel', end, { once: true });
+  });
+  resizer.addEventListener('dblclick', () => setShare(undefined));
+  resizer.addEventListener('keydown', (e) => {
+    const delta = { ArrowUp: SHARE.step, ArrowDown: -SHARE.step }[e.key];
+    if (delta === undefined) return;
+    e.preventDefault();
+    setShare((closedShare ?? SHARE.default) + delta);
+  });
 
   // Search runs in the extension, so it covers every closed session, not just the loaded page.
   let searchTimer;
@@ -140,6 +192,7 @@
   footer.querySelector('.count').remove();
   document.body.append(footer);
   const accountBody = footer.querySelector('.account-body');
+  let accountHtml;
 
   function renderAccounts(accounts, now) {
     footer.hidden = !accounts?.length;
@@ -147,13 +200,16 @@
     const html = accounts.map((a) => `<div class="account-card"><div class="who"><span class="name">${esc(a.harness)}</span>`
       + (a.plan ? `<span class="plan">${esc(a.plan)}</span>` : '') + '</div>'
       + (a.email || a.name ? `<div class="email">${esc(a.email || a.name)}</div>` : '')
+      + (a.note ? `<div class="note">${esc(a.note)}</div>` : '')
+      + (a.error ? `<div class="error-note">${esc(a.error)}</div>` : '')
       + a.limits.map((l) => `<div class="limit${l.percent >= 90 ? ' high' : l.percent >= 70 ? ' warn' : ''}">`
         + `<div class="limit-row"><span>${esc(l.label)}</span>`
-        + (l.resetsAt ? `<span class="reset">Resets ${until(l.resetsAt, now)}</span>` : '')
+        + (l.detail ? `<span class="reset">${esc(l.detail)}</span>` : '')
+        + (l.resetsAt ? `<span class="reset">${l.resetsAt > now ? `Resets ${until(l.resetsAt, now)}` : 'Reset'}</span>` : '')
         + `<span class="percent">${Math.round(l.percent)}%</span></div>`
         + `<progress class="bar" max="100" value="${l.percent}"></progress></div>`).join('')
       + '</div>').join('');
-    if (accountBody.dataset.html !== html) accountBody.innerHTML = accountBody.dataset.html = html;
+    if (accountHtml !== html) accountBody.innerHTML = accountHtml = html;
   }
 
   window.addEventListener('message', ({ data }) => {

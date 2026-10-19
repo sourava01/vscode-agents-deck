@@ -6,7 +6,7 @@ const path = require('path');
 const { parseProcessTable, parseCwds, findOwner } = require('../src/processes');
 const { plainText, toolDetail, within, firstLine, JsonlFollower } = require('../src/util');
 const { readConfig } = require('../src/config');
-const { chatTabMatches, byStatus, searchClosed, CompletionTracker } = require('../src/agents');
+const { chatTabMatches, byStatus, searchClosed, CompletionTracker, MoveTracker } = require('../src/agents');
 const { tempHome, write, psOutput } = require('./helpers');
 
 test('parseProcessTable reads start times and command names, skipping malformed lines', () => {
@@ -57,6 +57,21 @@ test('JsonlFollower reads appended lines only, waits for half-written lines, and
   assert.deepEqual(seen, ['a', 'b', 'half-line', 'c']);
   write(file, 'fresh\n');
   assert.equal(follower.read(file), 1);
+
+  // A large file is read in chunks; a character split between chunks or between reads still decodes.
+  const big = path.join(tempHome(), 'big.jsonl');
+  const lines = [...Array.from({ length: 4000 }, (_, i) => `${'é'.repeat(300 + (i % 7))}✓${i}`), 'x'.repeat(3 * 1024 * 1024), 'last'];
+  const text = lines.map((l) => `${l}\n`).join('');
+  const bytes = Buffer.from(text);
+  const cut = bytes.indexOf(Buffer.from('✓')) + 1; // inside the first check mark's bytes
+  const got = [];
+  const reader = new JsonlFollower({ initialState: () => null, scan: (line) => got.push(line), summarize: () => got.length });
+  write(big, bytes.subarray(0, cut));
+  reader.read(big);
+  fs.appendFileSync(big, bytes.subarray(cut));
+  assert.equal(bytes[cut + 1024 * 1024] & 0xc0, 0x80, 'the second chunk starts inside a character');
+  assert.equal(reader.read(big), lines.length);
+  assert.deepEqual(got, lines);
 });
 
 test('readConfig: defaults, and bad values fall back or are clamped', () => {
@@ -64,8 +79,9 @@ test('readConfig: defaults, and bad values fall back or are clamped', () => {
     harnesses: { claude: true, codex: true, pi: true },
     sources: { terminal: true, extension: true, background: true },
     closedMaxAgeDays: 7,
+    closedHideShort: true,
     accounts: true,
-    refreshMs: 5000,
+    refreshMs: 10000,
   });
   const values = { 'harnesses.codex': false, 'sources.background': 'yes', 'closedSessions.maxAgeDays': -3, refreshSeconds: 0.4 };
   const config = readConfig((key) => values[key]);
@@ -79,10 +95,10 @@ test('chatTabMatches, byStatus and searchClosed', () => {
   assert.equal(chatTabMatches('Maximizing terminal in Z…', 'Maximizing terminal in Zed'), true);
   assert.equal(chatTabMatches('Other…', 'Maximizing terminal in Zed'), false);
   assert.equal(chatTabMatches(undefined, 'x'), false);
-  const agents = [{ status: 'idle', lastInputAt: 1 }, { status: 'busy', lastInputAt: 1 }, { status: 'busy', lastInputAt: 2 }, { status: 'completed', lastInputAt: 1 }, { status: 'waiting', lastInputAt: 1 }];
-  assert.deepEqual(agents.sort(byStatus).map((a) => `${a.status}${a.lastInputAt}`), ['waiting1', 'completed1', 'busy2', 'busy1', 'idle1'], 'latest message first within a status');
+  const agents = [{ status: 'idle', statusSince: 1 }, { status: 'busy', statusSince: 1 }, { status: 'busy', statusSince: 2 }, { status: 'completed', statusSince: 1 }, { status: 'waiting', statusSince: 1 }, { status: 'busy' }];
+  assert.deepEqual(agents.sort(byStatus).map((a) => `${a.status}${a.statusSince ?? ''}`), ['waiting1', 'completed1', 'busy2', 'busy1', 'busy', 'idle1'], 'latest status change first within a status');
   const sessions = [{ title: 'Deploy api', reply: 'Done.', lastActivity: 1 }, { title: 'Fix test', reply: 'Fixed it.', lastActivity: 2 }];
-  assert.deepEqual(searchClosed(sessions, '').map((s) => s.title), ['Fix test', 'Deploy api']);
+  assert.equal(searchClosed(sessions, ''), sessions, 'no query: every session, as is');
   assert.deepEqual(searchClosed(sessions, '  FIXED ').map((s) => s.title), ['Fix test']);
 });
 
@@ -93,4 +109,25 @@ test('CompletionTracker: completed after a turn ends, idle once viewed', () => {
     .map(([status, viewing]) => step(status, viewing));
   assert.deepEqual(seen, ['busy', 'completed', 'completed', 'idle', 'idle', 'busy', 'idle', 'waiting', 'completed']);
   assert.equal(tracker.apply([{ key: 'b', status: 'idle' }])[0].status, 'idle', 'an agent first seen idle stays idle');
+  tracker.apply([{ key: 'c', status: 'busy' }]);
+  tracker.apply([]);
+  assert.equal(tracker.apply([{ key: 'c', status: 'idle' }])[0].status, 'idle', 'closed while busy, resumed idle: not completed');
+});
+
+test('MoveTracker: marks sessions that just closed or resumed, for a while', () => {
+  const tracker = new MoveTracker(100);
+  const keys = (...k) => new Set(k);
+  assert.equal(tracker.update(keys('a', 'b'), keys('c'), 0), true, 'first sight counts as joining');
+  assert.equal(tracker.moved('a', 'active'), false, 'a new session is not a resumed one');
+  assert.equal(tracker.update(keys('a', 'b'), keys('c'), 10), false);
+  assert.equal(tracker.update(keys('a', 'c'), keys('c'), 20), true);
+  assert.equal(tracker.moved('b', 'closed'), true);
+  assert.equal(tracker.moved('c', 'active'), true, 'was in Closed Agents, now running again');
+  assert.equal(tracker.update(keys('a', 'c'), keys('b'), 119), false);
+  assert.equal(tracker.moved('b', 'closed'), true);
+  tracker.update(keys('a', 'c'), keys('b'), 120);
+  assert.equal(tracker.moved('b', 'closed'), false, 'the mark expires');
+  tracker.update(keys('c'), keys(), 130);
+  tracker.update(keys('a', 'c'), keys(), 140);
+  assert.equal(tracker.moved('a', 'closed') || tracker.moved('a', 'active'), false, 'briefly hidden and back is no move');
 });
