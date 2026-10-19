@@ -3,7 +3,7 @@
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
-const { UUID, parseJson, readJson, readDir, mtimeOf, oneLine, plainText, toolDetail, JsonlFollower } = require('../util');
+const { UUID, parseJson, readJson, readDir, mtimeOf, oneLine, detach, plainText, toolDetail, JsonlFollower } = require('../util');
 const { isAlive } = require('../processes');
 
 // Claude Code names a project's transcript folder after its working directory, with every non-alphanumeric
@@ -154,10 +154,12 @@ function createClaude({ home, claudeCommand = 'claude' }) {
     scan(line, state) {
       state.seq++;
       const id = sessionIdOf(line);
-      if (id) state.sessionIds.add(id);
+      if (id && !state.sessionIds.has(id)) state.sessionIds.add(detach(id));
+      let kept;
       for (const [kind, matches] of Object.entries(LINE_KINDS)) {
         if (!matches(line)) continue;
-        state.found[kind] = { line, seq: state.seq };
+        kept ??= detach(line);
+        state.found[kind] = { line: kept, seq: state.seq };
         if (kind === 'prompt') state.prompts++;
       }
     },

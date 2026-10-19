@@ -28,6 +28,9 @@ const readDir = (dir) => {
 const mtimeOf = (file) => fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs;
 const oneLine = (text) => (typeof text === 'string' ? text.replace(/\s+/g, ' ').trim() : '');
 const timeOf = (iso) => Date.parse(iso) || undefined;
+// A string cut from another one (such as a line from a file chunk) keeps all of the other one in memory; this copy
+// doesn't. For text kept between reads.
+const detach = (text) => Buffer.from(text).toString();
 
 /** A Markdown reply as plain text, for a one-line preview. */
 const plainText = (markdown) => oneLine(String(markdown ?? '')
@@ -130,4 +133,4 @@ class JsonlFollower {
   }
 }
 
-module.exports = { UUID, parseJson, readJson, readDir, mtimeOf, oneLine, timeOf, plainText, toolDetail, within, firstLine, JsonlFollower };
+module.exports = { UUID, parseJson, readJson, readDir, mtimeOf, oneLine, timeOf, detach, plainText, toolDetail, within, firstLine, JsonlFollower };
