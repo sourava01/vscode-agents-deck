@@ -30,6 +30,9 @@ const run = (cmd, args) => execFile(cmd, args, { maxBuffer: 16 * 1024 * 1024 }).
 const terminalPid = (terminal) => within(terminal.processId, 500, undefined);
 const roots = () => (vscode.workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
 const inWorkspace = (dir) => roots().some((root) => dir === root || dir.startsWith(root + path.sep));
+const keyOf = (harness, sessionId) => `${harness}:${sessionId}`;
+// A Codex or pi process whose transcript isn't found yet has no session ID, so it's known by its process ID.
+const tagged = (h, s) => ({ ...s, harness: h.id, harnessLabel: h.label, key: keyOf(h.id, s.sessionId ?? `pid${s.pid}`) });
 
 /** Every enabled harness's running sessions, tagged with the harness. Shared by Active and Closed Agents. */
 async function liveSessions(harnesses) {
@@ -39,12 +42,7 @@ async function liveSessions(harnesses) {
   const cwds = pids.length ? parseCwds(await run('lsof', ['-a', '-p', pids.join(','), '-d', 'cwd', '-Fpn'])) : new Map();
   return {
     table,
-    sessions: harnesses.flatMap((h) => h.live({ table, cwds }).map((s) => ({
-      ...s,
-      harness: h.id,
-      harnessLabel: h.label,
-      key: `${h.id}:${s.sessionId ?? `pid${s.pid}`}`,
-    }))),
+    sessions: harnesses.flatMap((h) => h.live({ table, cwds }).map((s) => tagged(h, s))),
   };
 }
 
@@ -99,24 +97,25 @@ class AgentsView {
     const active = this.#completion.apply(await this.#activeAgents(table, sessions, config.sources));
     active.sort(byStatus);
     this.#active = new Map(active.map((agent) => [agent.key, agent]));
+    const now = Date.now();
     // An agent that left Active belongs in Closed Agents now (and a resumed one no longer does), so re-read those too.
-    const moved = this.#moves.update(new Set(this.#active.keys()), new Set(this.#closed.map((s) => s.key)), Date.now());
+    const moved = this.#moves.update(new Set(this.#active.keys()), new Set(this.#closed.map((s) => s.key)), now);
 
     if (config.closedMaxAgeDays === 0) this.#closed = [];
-    else if (includeClosed || moved || Date.now() - this.#closedAt > CLOSED_REFRESH_MS) {
+    else if (includeClosed || moved || now - this.#closedAt > CLOSED_REFRESH_MS) {
       const live = new Set(sessions.map((s) => s.sessionId).filter(Boolean));
-      const since = Date.now() - config.closedMaxAgeDays * DAY_MS;
+      const since = now - config.closedMaxAgeDays * DAY_MS;
       this.#closed = searchClosed(harnesses.flatMap((h) => h.closed({ roots: roots(), since, live })
-        .filter((s) => !config.closedHideShort || !(s.prompts < MIN_PROMPTS))
-        .map((s) => ({ ...s, harness: h.id, harnessLabel: h.label, key: `${h.id}:${s.sessionId}` }))), this.#query);
-      this.#closedAt = Date.now();
+        .filter((s) => !config.closedHideShort || s.prompts >= MIN_PROMPTS)
+        .map((s) => tagged(h, s))), this.#query);
+      this.#closedAt = now;
     }
 
     // Sessions that just closed go first, so they're easy to find even if their last message was long ago.
     const justClosed = (s) => this.#moves.moved(s.key, 'closed');
     const closed = [...this.#closed.filter(justClosed), ...this.#closed.filter((s) => !justClosed(s))];
     this.view.webview.postMessage({
-      now: Date.now(),
+      now,
       active: active.map(({ terminal, ...agent }) => ({ ...agent, resumed: this.#moves.moved(agent.key, 'active') })),
       closed: config.closedMaxAgeDays === 0 ? undefined : {
         agents: closed.slice(0, this.#limit).map(({ resume, ...s }) => ({ ...s, justClosed: justClosed(s) })),
@@ -154,7 +153,7 @@ class AgentsView {
       if (terminal) source = 'terminal';
       else if (owner === process.pid) source = 'extension';
       else if (session.background && (inWorkspace(session.cwd) || this.#windowKeys.has(session.key)
-        || (session.forkedFrom && this.#windowKeys.has(`${session.harness}:${session.forkedFrom}`)))) {
+        || (session.forkedFrom && this.#windowKeys.has(keyOf(session.harness, session.forkedFrom))))) {
         source = 'background';
         terminal = this.#attachTerminals.get(session.key);
         if (terminal && !terminals.includes(terminal)) terminal = undefined; // closed since

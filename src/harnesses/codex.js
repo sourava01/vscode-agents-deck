@@ -58,7 +58,7 @@ function scan(line, state) {
     const text = textOf(p.content, 'input_text').trim();
     if (text && !text.startsWith('<')) {
       state.promptItems = (state.promptItems ?? 0) + 1;
-      Object.assign(state, { promptSeq: state.seq, promptAt: timeOf(record.timestamp) });
+      Object.assign(state, { promptSeq: state.seq, promptAt: at });
       state.firstPrompt ??= oneLine(text).slice(0, 80);
     }
   } else if (p.type === 'message' && p.role === 'assistant') {
@@ -119,10 +119,14 @@ const REACHED = {
   workspace_member_usage_limit_reached: 'Workspace usage limit reached. Ask your workspace owner to raise it.',
 };
 
-/**
- * The rows and note for Codex's latest rate limits: its time windows, a personal spend limit, and otherwise how
- * credits cover usage (business and enterprise plans often have no time windows).
- */
+/** How credits cover usage, for plans paid with credits (business and enterprise plans often have no time windows). */
+function creditsNote(credits) {
+  if (credits.unlimited) return 'Unlimited credits.';
+  if (credits.balance) return `Credits: ${oneLine(String(credits.balance))}`;
+  return credits.has_credits ? 'No usage limits: usage is paid with credits.' : 'No credits left.';
+}
+
+/** The rows and note for Codex's latest rate limits: its time windows, a personal spend limit, and otherwise credits. */
 function codexUsage(r) {
   const limits = [r?.primary, r?.secondary]
     .filter((l) => Number.isFinite(l?.used_percent))
@@ -136,13 +140,9 @@ function codexUsage(r) {
       resetsAt: Number.isFinite(spend.resets_at) ? spend.resets_at * 1000 : undefined,
     });
   }
-  const credits = r?.credits;
   const note = REACHED[r?.rate_limit_reached_type]
     ?? (r?.spend_control_reached === true ? 'Spend limit reached.' : undefined)
-    ?? (limits.length || !credits ? undefined
-      : credits.unlimited ? 'Unlimited credits.'
-        : credits.balance ? `Credits: ${oneLine(String(credits.balance))}`
-          : credits.has_credits ? 'No usage limits: usage is paid with credits.' : 'No credits left.');
+    ?? (!limits.length && r?.credits ? creditsNote(r.credits) : undefined);
   return { limits, note };
 }
 

@@ -25,9 +25,8 @@ function scan(line, state) {
   const at = timeOf(entry.timestamp);
   if (role === 'user') {
     state.prompts = (state.prompts ?? 0) + 1;
-    Object.assign(state, { promptSeq: state.seq, promptAt: at });
     state.firstPrompt ??= oneLine(textOf(content)).slice(0, 80);
-    Object.assign(state, { status: 'busy', statusAt: at });
+    Object.assign(state, { promptSeq: state.seq, promptAt: at, status: 'busy', statusAt: at });
   } else if (role === 'toolResult') {
     Object.assign(state, { status: 'busy', statusAt: at });
   } else if (role === 'assistant') {

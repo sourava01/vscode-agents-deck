@@ -1,5 +1,5 @@
 // Claude Code. It registers every running session in ~/.claude/sessions/<pid>.json, writes transcripts to
-// ~/.claude/projects/<cwd>/<session id>.jsonl, and caches the account and usage limits in ~/.claude.json.
+// ~/.claude/projects/<cwd>/<session id>.jsonl, and keeps the account in ~/.claude.json.
 const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
@@ -63,10 +63,11 @@ function summarize({ prompts, found: { customTitle, aiTitle, prompt, tool, reply
   };
 }
 
-// Claude Code saves its usage limits only when something asks for them, so every 5 minutes the panel asks: Claude Code's
-// SDK mode answers a get_usage request without a model call and saves the result to ~/.claude.json. Without MCP
-// servers or a saved transcript, it takes about a second.
+// Claude Code fetches the usage limits only when something asks for them, so every 5 minutes the panel asks: Claude
+// Code's SDK mode answers a get_usage request without a model call. Without MCP servers or a saved transcript, it takes
+// about a second.
 const USAGE_REFRESH_MS = 5 * 60 * 1000;
+const USAGE_RETRY_NO_LIMITS_MS = 60 * 60 * 1000; // an API key login has no plan limits to watch
 const USAGE_ARGS = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--strict-mcp-config', '--no-session-persistence'];
 const USAGE_REQUEST = `${JSON.stringify({ type: 'control_request', request_id: 'usage', request: { subtype: 'get_usage', skip_behaviors: true } })}\n`;
 const USAGE_TIMEOUT_MS = 30000;
@@ -101,8 +102,6 @@ function fetchUsage(command) {
     child.stdin.write(USAGE_REQUEST);
   });
 }
-
-const USAGE_RETRY_NO_LIMITS_MS = 60 * 60 * 1000; // an API key login has no plan limits to watch
 
 const PLANS = { claude_pro: 'Pro', claude_max: 'Max', claude_team: 'Team', claude_enterprise: 'Enterprise' };
 

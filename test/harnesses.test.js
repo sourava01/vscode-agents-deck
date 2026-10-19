@@ -166,7 +166,6 @@ process.stdin.on('end', () => process.exit(0));
   const { plan, limits, note } = claude.account();
   assert.deepEqual({ plan, limits, note }, { plan: '', limits: [{ label: 'Session', percent: 12, resetsAt: undefined }], note: undefined });
 
-
   // An API key (or Bedrock, Vertex) login: no account in ~/.claude.json and no plan limits.
   write(path.join(home, '.claude.json'), JSON.stringify({}));
   write(path.join(home, 'answer.json'), JSON.stringify({ subscription_type: null, rate_limits_available: false, rate_limits: null }));

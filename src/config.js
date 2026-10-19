@@ -18,4 +18,4 @@ function readConfig(get) {
   };
 }
 
-module.exports = { readConfig, HARNESSES, SOURCES };
+module.exports = { readConfig };
