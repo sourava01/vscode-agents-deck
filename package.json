@@ -112,13 +112,13 @@
         "agentsDeck.closedSessions.hideShort": {
           "type": "boolean",
           "default": true,
-          "order": 7,
+          "order": 8,
           "description": "Hide finished sessions in which you sent fewer than 3 messages."
         },
         "agentsDeck.accounts.enabled": {
           "type": "boolean",
           "default": true,
-          "order": 8,
+          "order": 9,
           "description": "Show the Accounts section with your subscriptions and their usage limits."
         },
         "agentsDeck.refreshSeconds": {
@@ -126,7 +126,7 @@
           "default": 10,
           "minimum": 2,
           "maximum": 60,
-          "order": 9,
+          "order": 10,
           "description": "How often the panel re-reads agent status, in seconds."
         }
       }
