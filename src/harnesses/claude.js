@@ -4,7 +4,6 @@ const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { UUID, parseJson, readJson, readDir, mtimeOf, oneLine, detach, plainText, toolDetail, JsonlFollower } = require('../util');
-const { isAlive } = require('../processes');
 
 // Claude Code names a project's transcript folder after its working directory, with every non-alphanumeric
 // character replaced by "-".
@@ -166,12 +165,13 @@ function createClaude({ home, claudeCommand = 'claude' }) {
   });
   const transcript = (cwd, sessionId) => transcripts.read(path.join(projectDir(home, cwd), `${sessionId}.jsonl`)) ?? {};
 
-  function registeredSessions() {
+  /** The registered sessions whose process is running (a crashed session leaves its file behind). */
+  function registeredSessions(table) {
     const dir = path.join(home, '.claude', 'sessions');
     return readDir(dir)
       .filter((name) => name.endsWith('.json'))
       .map((name) => readJson(path.join(dir, name)))
-      .filter((s) => Number.isInteger(s?.pid) && UUID.test(s.sessionId) && typeof s.cwd === 'string' && isAlive(s.pid));
+      .filter((s) => Number.isInteger(s?.pid) && UUID.test(s.sessionId) && typeof s.cwd === 'string' && table.has(s.pid));
   }
 
   return {
@@ -179,8 +179,8 @@ function createClaude({ home, claudeCommand = 'claude' }) {
     label: 'Claude',
     wantsCwd: () => false, // the registry already names each session's folder
 
-    live() {
-      return registeredSessions().flatMap((s) => {
+    live({ table }) {
+      return registeredSessions(table).flatMap((s) => {
         // Not agents: `claude -p` runs (scripts, evals, and this panel's own usage fetch) register too.
         if (s.entrypoint === 'sdk-cli') return [];
         const info = transcript(s.cwd, s.sessionId);

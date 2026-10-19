@@ -39,9 +39,9 @@ test('claude: live sessions from the registry, with transcript details and backg
   });
   assert.equal(two.title, 'fork task');
   assert.equal(two.attach, 'claude attach abcd1234');
-  assert.equal(createClaude({ home }).live().length, 2, 'bad, dead, spare and unused panel entries are skipped');
+  assert.equal(createClaude({ home }).live(running).length, 2, 'bad, dead, spare and unused panel entries are skipped');
   write(path.join(projectDir(home, cwd), `${id(7)}.jsonl`), jsonl(claudePrompt('hello')));
-  assert.equal(createClaude({ home }).live().find((s) => s.sessionId === id(7))?.chatTab, true, 'a chat panel session shows once used');
+  assert.equal(createClaude({ home }).live(running).find((s) => s.sessionId === id(7))?.chatTab, true, 'a chat panel session shows once used');
 });
 
 test('claude: a forked background session names its parent from the lines copied into its transcript', () => {
@@ -57,7 +57,7 @@ test('claude: a forked background session names its parent from the lines copied
     line(claudePrompt('fork work'), id(3))));
   write(path.join(projectDir(home, cwd), `${id(4)}.jsonl`), jsonl(line(claudePrompt('started with --bg'), id(4), id(4))));
 
-  const byId = new Map(createClaude({ home }).live().map((s) => [s.sessionId, s]));
+  const byId = new Map(createClaude({ home }).live(running).map((s) => [s.sessionId, s]));
   assert.equal(byId.get(id(3)).forkedFrom, id(2));
   assert.equal(byId.get(id(4)).forkedFrom, undefined, 'not a fork');
 });
@@ -159,8 +159,9 @@ process.stdin.on('end', () => process.exit(0));
 
   const fetching = claude.refreshAccount();
   assert.equal(claude.refreshAccount(), undefined, 'one fetch at a time');
-  while (!fs.existsSync(path.join(home, '.claude/sessions/helper.json'))) await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.deepEqual(claude.live(), [], 'the helper, like any claude -p run, is not an agent');
+  const helper = path.join(home, '.claude/sessions/helper.json');
+  while (!fs.existsSync(helper)) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(claude.live({ table: new Map([[JSON.parse(fs.readFileSync(helper, 'utf8')).pid, {}]]) }), [], 'the helper, like any claude -p run, is not an agent');
   await fetching;
   assert.match(fs.readFileSync(log, 'utf8'), /--no-session-persistence/);
   assert.equal(claude.refreshAccount(), undefined, 'tried less than 5 minutes ago');
