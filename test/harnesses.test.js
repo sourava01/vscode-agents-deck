@@ -34,7 +34,7 @@ test('claude: live sessions from the registry, with transcript details and backg
   const [one, two] = createClaude({ home }).live();
   assert.deepEqual(one, {
     sessionId: id(1), pid: process.pid, cwd, title: 'Login fix', status: 'busy', waitingFor: undefined, statusSince: 9, startedAt: 5, lastInputAt: 5,
-    tool: { name: 'Bash', detail: 'Run tests' }, reply: 'Running now.', background: false, attach: undefined, forkedFrom: undefined, chatTab: false,
+    tool: { name: 'Bash', detail: 'Run tests' }, reply: 'Running now.', background: false, attach: undefined, forkedFrom: undefined, workflowAgents: 0, chatTab: false,
   });
   assert.equal(two.title, 'fork task');
   assert.equal(two.attach, 'claude attach abcd1234');
@@ -59,6 +59,18 @@ test('claude: a forked background session names its parent from the lines copied
   const byId = new Map(createClaude({ home }).live().map((s) => [s.sessionId, s]));
   assert.equal(byId.get(id(3)).forkedFrom, id(2));
   assert.equal(byId.get(id(4)).forkedFrom, undefined, 'not a fork');
+});
+
+test('claude: sub-agents of running workflows', () => {
+  const home = tempHome();
+  const cwd = '/work/app';
+  write(path.join(home, '.claude/sessions/1.json'), JSON.stringify({ pid: process.pid, sessionId: id(1), cwd }));
+  write(path.join(projectDir(home, cwd), `${id(1)}.jsonl`), jsonl(claudePrompt('run the workflow')));
+  const runs = path.join(projectDir(home, cwd), id(1), 'subagents', 'workflows');
+  for (const name of ['agent-a1.jsonl', 'agent-a1.meta.json', 'agent-a2.jsonl']) write(path.join(runs, 'wf_running', name), '{}\n');
+  write(path.join(runs, 'wf_done', 'agent-a3.jsonl'), '{}\n');
+  write(path.join(projectDir(home, cwd), id(1), 'workflows', 'wf_done.json'), '{}'); // written when a run ends
+  assert.equal(createClaude({ home }).live()[0].workflowAgents, 2, 'only the running workflow, transcripts only');
 });
 
 test('claude: transcript title precedence, stale tools, and closed sessions', () => {

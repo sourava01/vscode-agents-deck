@@ -168,6 +168,15 @@ function createClaude({ home, claudeCommand = 'claude' }) {
   });
   const transcript = (cwd, sessionId) => transcripts.read(path.join(projectDir(home, cwd), `${sessionId}.jsonl`)) ?? {};
 
+  // Sub-agents of a session's workflows that are still running: each run keeps its agents' transcripts in
+  // <session>/subagents/workflows/<run id>/ and writes <session>/workflows/<run id>.json only when it ends.
+  function workflowAgents(cwd, sessionId) {
+    const dir = path.join(projectDir(home, cwd), sessionId);
+    return readDir(path.join(dir, 'subagents', 'workflows'))
+      .filter((run) => mtimeOf(path.join(dir, 'workflows', `${run}.json`)) === undefined)
+      .reduce((n, run) => n + readDir(path.join(dir, 'subagents', 'workflows', run)).filter((f) => f.endsWith('.jsonl')).length, 0);
+  }
+
   function registeredSessions() {
     const dir = path.join(home, '.claude', 'sessions');
     return readDir(dir)
@@ -205,6 +214,7 @@ function createClaude({ home, claudeCommand = 'claude' }) {
           background,
           attach: background ? `claude attach ${s.jobId}` : undefined,
           forkedFrom: background ? info.sessionIds?.findLast((id) => id !== s.sessionId) : undefined, // a fork's parent
+          workflowAgents: workflowAgents(s.cwd, s.sessionId),
           chatTab: s.entrypoint === 'claude-vscode', // runs in the Claude Code extension's chat
         }];
       });

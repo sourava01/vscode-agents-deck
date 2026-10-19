@@ -227,6 +227,6 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 
 /* Which harness runs the agent, at the right of the status line */
 .harness { margin-left: auto; color: var(--muted); font-size: 10.5px; }
-.pill + .harness { margin-left: 6px; }
+.pill + .harness, .pill + .pill { margin-left: 6px; }
 .pill.quiet { background: color-mix(in srgb, var(--fg) 12%, transparent); color: var(--muted); font-weight: 500; }
 .account-card + .account-card { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--hairline); }

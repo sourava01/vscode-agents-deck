@@ -60,6 +60,7 @@
       label: `${a.title}, ${STATES[a.status]}`,
       html: `<div class="head"><span class="dot"></span><span class="state">${STATES[a.status]}</span>`
         + (a.statusSince ? `<span class="since">· ${ago(a.statusSince, now)}</span>` : '')
+        + (a.workflowAgents ? `<span class="pill quiet" title="A workflow is running with ${a.workflowAgents} sub-agents so far">Workflow · ${a.workflowAgents} agent${a.workflowAgents === 1 ? '' : 's'}</span>` : '')
         + (a.viewing ? '<span class="pill">Viewing</span>' : a.resumed ? '<span class="pill">Resumed</span>'
           : a.source === 'background' ? '<span class="pill quiet">Background</span>' : '')
         + `<span class="harness">${esc(a.harnessLabel)}</span>`
