@@ -49,7 +49,8 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .resizer::after { content: ""; position: absolute; inset: 4px 0 auto; height: 2px; border-radius: 1px; transition: background-color var(--ease); }
 .resizer:is(:hover, :focus-visible, .dragging)::after { background: var(--accent); }
 .resizer:focus-visible { outline: none; }
-#root:has(.section.collapsed) .resizer { display: none; }
+.section[hidden] { display: none; } /* Closed Agents turned off in settings */
+#root:has(.section:is(.collapsed, [hidden])) .resizer { display: none; }
 #root:has(.section.collapsed) .resizer + .section { margin-top: 10px; }
 
 /* Section header: chevron, title, count on the right (like Claude Code's session groups) */
