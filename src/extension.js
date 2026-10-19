@@ -7,7 +7,7 @@ const crypto = require('crypto');
 const { promisify } = require('util');
 const execFile = promisify(require('child_process').execFile);
 const { parseProcessTable, parseCwds, findOwner } = require('./processes');
-const { chatTabMatches, byStatus, searchClosed, CompletionTracker, MoveTracker } = require('./agents');
+const { chatTabMatches, byStatus, searchClosed, CompletionTracker, MoveTracker, foldSubAgents } = require('./agents');
 const { readConfig } = require('./config');
 const { within } = require('./util');
 const { createClaude } = require('./harnesses/claude');
@@ -143,7 +143,8 @@ class AgentsView {
     const chatLabel = tab?.input instanceof vscode.TabInputWebview && tab.input.viewType.endsWith('claudeVSCodePanel') ? tab.label : undefined;
 
     // Background sessions last, so the agents they may be forked from are known by then.
-    const ordered = [...sessions.filter((s) => !s.background), ...sessions.filter((s) => s.background)];
+    const agents = foldSubAgents(sessions, table);
+    const ordered = [...agents.filter((s) => !s.background), ...agents.filter((s) => s.background)];
     return ordered.flatMap((session) => {
       // A terminal's shell among the agent's ancestors means it runs in that terminal; this extension host means it
       // runs in an extension's chat panel in this window (the chat starts it as a child process). Not for background

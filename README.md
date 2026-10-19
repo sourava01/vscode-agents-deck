@@ -13,7 +13,7 @@ A VS Code sidebar panel for working with several coding agents at once: [Claude 
 - **Working**: the tool it is running right now.
 - **Idle**: the start of its last reply.
 
-Agents are listed in that order of status, and within a status by when it last changed, most recent first.
+Agents are listed in that order of status, and within a status by when it last changed, most recent first. Agents that another agent started (a workflow's sub-agents, or `claude -p` run from its tools) aren't listed on their own: the agent that started them shows how many are running.
 
 The agent you are looking at is outlined in your theme's highlight colour and marked **Viewing**. Click any agent to switch to its terminal or chat tab, or to attach to a background session.
 

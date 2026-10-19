@@ -6,7 +6,7 @@ const path = require('path');
 const { parseProcessTable, parseCwds, findOwner } = require('../src/processes');
 const { plainText, toolDetail, within, firstLine, JsonlFollower } = require('../src/util');
 const { readConfig } = require('../src/config');
-const { chatTabMatches, byStatus, searchClosed, CompletionTracker, MoveTracker } = require('../src/agents');
+const { chatTabMatches, byStatus, searchClosed, CompletionTracker, MoveTracker, foldSubAgents } = require('../src/agents');
 const { tempHome, write, psOutput } = require('./helpers');
 
 test('parseProcessTable reads start times and command names, skipping malformed lines', () => {
@@ -112,4 +112,12 @@ test('MoveTracker: marks sessions that just closed or resumed, for a while', () 
   tracker.update(keys('c'), keys(), 130);
   tracker.update(keys('a', 'c'), keys(), 140);
   assert.equal(tracker.moved('a', 'closed') || tracker.moved('a', 'active'), false, 'briefly hidden and back is no move');
+});
+
+test('foldSubAgents: agents started by an agent count on the top-level agent', () => {
+  // 10 runs in a terminal; its Bash tool runs a script (11) that starts 12, which starts 13. 20 is a fork run by
+  // Claude Code's daemon (19), which 10 started.
+  const table = new Map([[10, { ppid: 1 }], [11, { ppid: 10 }], [12, { ppid: 11 }], [13, { ppid: 12 }], [19, { ppid: 10 }], [20, { ppid: 19 }], [30, { ppid: 1 }]]);
+  const sessions = [{ pid: 10, workflowAgents: 2 }, { pid: 12 }, { pid: 13 }, { pid: 20, background: true }, { pid: 30 }];
+  assert.deepEqual(foldSubAgents(sessions, table).map((s) => [s.pid, s.subAgents]), [[10, 4], [20, 0], [30, 0]]);
 });
