@@ -122,29 +122,20 @@ function money(minor, currency, exponent = 2) {
 }
 const moneyOf = (m) => (m && typeof m === 'object' ? money(m.amount_minor, m.currency, m.exponent) : undefined);
 
-// The windows get_usage documents, when its answer has no server `limits` list (it often doesn't): each is
-// { utilization, resets_at }, and model_scoped lists the weekly limits for single models such as Fable.
+// The windows a get_usage answer documents: each is { utilization, resets_at }, and model_scoped lists the weekly
+// limits for single models such as Fable (empty when the plan has none).
 const WINDOWS = { five_hour: 'Session', seven_day: 'Weekly', seven_day_opus: 'Weekly · Opus', seven_day_sonnet: 'Weekly · Sonnet' };
 
-function documentedLimits(u) {
-  const windows = Object.entries(WINDOWS).map(([field, label]) => ({ label, ...u?.[field] }));
-  const models = (Array.isArray(u?.model_scoped) ? u.model_scoped : []).map((m) => ({ ...m, label: `Weekly · ${oneLine(m?.display_name) || 'scoped'}` }));
-  return [...windows, ...models]
-    .filter((w) => Number.isFinite(w.utilization))
-    .map((w) => ({ label: w.label, percent: w.utilization, resetsAt: Date.parse(w.resets_at) || undefined }));
-}
-
 /**
- * The rows the Accounts section shows for a usage answer: the session and weekly limits (a weekly limit for a
- * model such as Fable only when the plan has one), then usage credits when they are turned on.
+ * The rows the Accounts section shows for a get_usage answer: the session and weekly limits, then usage credits when
+ * they are turned on.
  */
 function usageRows(u) {
-  const label = (l) => (l.kind === 'session' ? 'Session'
-    : `Weekly${l.scope ? ` · ${l.scope.model?.display_name ?? l.scope.surface?.display_name ?? 'scoped'}` : ''}`);
-  // The server's `limits` list when there is one (always in the copy saved in ~/.claude.json), else the documented windows.
-  const rows = !Array.isArray(u?.limits) ? documentedLimits(u) : u.limits
-    .filter((l) => Number.isFinite(l?.percent))
-    .map((l) => ({ label: label(l), percent: l.percent, resetsAt: Date.parse(l.resets_at) || undefined }));
+  const windows = Object.entries(WINDOWS).map(([field, label]) => ({ label, ...u?.[field] }));
+  const models = (Array.isArray(u?.model_scoped) ? u.model_scoped : []).map((m) => ({ ...m, label: `Weekly · ${oneLine(m?.display_name) || 'scoped'}` }));
+  const rows = [...windows, ...models]
+    .filter((w) => Number.isFinite(w.utilization))
+    .map((w) => ({ label: w.label, percent: w.utilization, resetsAt: Date.parse(w.resets_at) || undefined }));
   // Usage credits: the newer `spend` block, else the older `extra_usage` one. Both cover usage past the plan limits.
   const spend = u?.spend;
   const extra = u?.extra_usage;
@@ -166,7 +157,7 @@ function createClaude({ home, claudeCommands = ['claude', path.join(home, '.loca
   let usagePid; // the `claude` process fetching usage, which registers itself as a session while it runs
   let usageFetch;
   let usageTriedAt = 0;
-  let usage; // Claude Code's latest get_usage answer, and when it came: { answer, at }
+  let usage; // the latest get_usage result: { answer } or { failed: true }
 
   const transcripts = new JsonlFollower({
     initialState: () => ({ seq: 0, prompts: 0, found: {}, sessionIds: new Set() }),
@@ -245,14 +236,13 @@ function createClaude({ home, claudeCommands = ['claude', path.join(home, '.loca
      * limits), or now if `force`. Returns a promise of whether it answered, or undefined when no fetch was needed.
      */
     refreshAccount(force = false) {
-      const fetchedAt = readJson(path.join(home, '.claude.json'))?.cachedUsageUtilization?.fetchedAtMs;
       const now = Date.now();
-      const every = usage?.answer.rate_limits_available === false ? USAGE_RETRY_NO_LIMITS_MS : USAGE_REFRESH_MS;
-      if (usageFetch || (!force && now - Math.max(Number.isFinite(fetchedAt) ? fetchedAt : 0, usageTriedAt) < every)) return undefined;
+      const every = usage?.answer?.rate_limits_available === false ? USAGE_RETRY_NO_LIMITS_MS : USAGE_REFRESH_MS;
+      if (usageFetch || (!force && now - usageTriedAt < every)) return undefined;
       usageTriedAt = now;
       usageFetch = fetchUsage(claudeCommands, (pid) => { usagePid = pid; }).then((answer) => {
-        if (answer) usage = { answer, at: Date.now() };
-        return Boolean(answer);
+        usage = answer ? { answer } : { failed: true };
+        return true;
       }).finally(() => {
         usagePid = undefined;
         usageFetch = undefined;
@@ -261,8 +251,8 @@ function createClaude({ home, claudeCommands = ['claude', path.join(home, '.loca
     },
 
     /**
-     * The account and the usage limits behind Claude Code's /usage screen: from its latest get_usage answer, else from
-     * the copy it saved in ~/.claude.json.
+     * The account (from ~/.claude.json) and the usage limits behind Claude Code's /usage screen (from its latest
+     * get_usage answer).
      */
     account() {
       const config = readJson(path.join(home, '.claude.json'));
@@ -274,18 +264,12 @@ function createClaude({ home, claudeCommands = ['claude', path.join(home, '.loca
       const who = { name: oneLine(a?.displayName), email: oneLine(a?.emailAddress) };
       // API key, Bedrock and Vertex logins are billed per token: there are no plan limits to show.
       if (answer?.rate_limits_available === false) return { ...who, plan: plan || 'API', limits: [], note: 'No plan limits: usage is billed per token.' };
-      const saved = config?.cachedUsageUtilization;
-      const [utilization, updatedAt] = answer?.rate_limits ? [answer.rate_limits, usage.at] : [saved?.utilization, saved?.fetchedAtMs];
-      const limits = usageRows(utilization);
-      return {
-        ...who,
-        plan,
-        updatedAt: Number.isFinite(updatedAt) ? updatedAt : undefined, // when Claude Code last fetched the limits
-        limits,
-        note: utilization && !limits.length ? 'No usage limits reported for this plan.' : undefined,
-      };
+      if (usage?.failed) return { ...who, plan, limits: [], error: "Couldn't get usage limits from Claude Code." };
+      if (!answer) return { ...who, plan, limits: [], note: 'Loading usage…' };
+      const limits = usageRows(answer.rate_limits);
+      return { ...who, plan, limits, note: limits.length ? undefined : 'No usage limits reported for this plan.' };
     },
   };
 }
 
-module.exports = { createClaude, projectDir };
+module.exports = { createClaude, projectDir, usageRows };

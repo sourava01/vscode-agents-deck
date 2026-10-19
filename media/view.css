@@ -218,10 +218,8 @@ button:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
 .bar::-webkit-progress-bar { border-radius: 2px; background: color-mix(in srgb, var(--fg) 10%, transparent); }
 .bar::-webkit-progress-value { border-radius: 2px; background: var(--bar); }
 .reset { color: var(--muted); font-size: 11px; }
-.limit.stale { --bar: var(--muted); color: var(--muted); }
 .note { margin-top: 6px; padding-left: 4px; color: var(--muted); font-size: 11px; line-height: 1.4; }
-.stale-note { margin-top: 6px; padding-left: 4px; color: var(--waiting); font-size: 11px; line-height: 1.4; }
-.stale-note code { font-family: var(--vscode-editor-font-family); }
+.error-note { margin-top: 6px; padding-left: 4px; color: var(--waiting); font-size: 11px; line-height: 1.4; }
 
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0ms !important; }

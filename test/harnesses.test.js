@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
-const { createClaude, projectDir } = require('../src/harnesses/claude');
+const { createClaude, projectDir, usageRows } = require('../src/harnesses/claude');
 const { createCodex, jwtClaims, limitLabel, planLabel, codexUsage } = require('../src/harnesses/codex');
 const { createPi, sessionDir } = require('../src/harnesses/pi');
 const { tempHome, id, jsonl, write } = require('./helpers');
@@ -102,52 +102,32 @@ test('claude: slash and shell commands title as typed; messages Claude Code adds
   assert.equal(prompts, 1, 'only typed messages count');
 });
 
-test('claude: account and usage limits, and bad input', () => {
+test('claude: account, then Loading until Claude Code answers, and an error when it cannot', async () => {
   const home = tempHome();
   write(path.join(home, '.claude.json'), JSON.stringify({
     oauthAccount: { displayName: 'Ada', emailAddress: 'ada@example.com', organizationType: 'claude_max', organizationRateLimitTier: 'default_claude_max_20x' },
-    cachedUsageUtilization: { fetchedAtMs: 1234, utilization: { limits: [
-      { kind: 'session', percent: 6, resets_at: '2030-01-01T00:00:00Z' },
-      { kind: 'weekly_scoped', percent: 0, scope: { model: { display_name: 'Fable' } } },
-      { kind: 'weekly_all', percent: 'n/a' },
-    ] } },
   }));
-  assert.deepEqual(createClaude({ home }).account(), {
-    name: 'Ada', email: 'ada@example.com', plan: 'Max 20x', updatedAt: 1234,
-    limits: [{ label: 'Session', percent: 6, resetsAt: Date.parse('2030-01-01T00:00:00Z') }, { label: 'Weekly · Fable', percent: 0, resetsAt: undefined }],
-    note: undefined,
-  });
+  const claude = createClaude({ home, claudeCommands: [] });
+  const who = { name: 'Ada', email: 'ada@example.com', plan: 'Max 20x', limits: [] };
+  assert.deepEqual(claude.account(), { ...who, note: 'Loading usage…' });
+  assert.equal(await claude.refreshAccount(), true);
+  assert.deepEqual(claude.account(), { ...who, error: "Couldn't get usage limits from Claude Code." }, 'claude not installed');
   assert.equal(createClaude({ home: tempHome() }).account(), undefined);
 });
 
-test('claude: plans without Fable, with usage credits, and with no limits', () => {
-  const home = tempHome();
-  const accountWith = (organizationType, utilization) => {
-    write(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: { organizationType }, cachedUsageUtilization: { fetchedAtMs: 1, utilization } }));
-    return createClaude({ home }).account();
-  };
-  const pro = accountWith('claude_pro', { limits: [{ kind: 'session', percent: 3 }, { kind: 'weekly_all', percent: 1 }] });
-  assert.deepEqual(pro.limits.map((l) => l.label), ['Session', 'Weekly'], 'no Fable row when the plan has no Fable limit');
-  const credits = accountWith('claude_team', { limits: [], spend: { enabled: true, percent: 25, used: { amount_minor: 2500, currency: 'USD', exponent: 2 }, limit: { amount_minor: 10000, currency: 'USD', exponent: 2 } } });
-  assert.deepEqual(credits.limits, [{ label: 'Usage credits', percent: 25, detail: '$25.00 of $100.00' }]);
-  assert.equal(credits.note, undefined);
-  const extra = accountWith('claude_max', { extra_usage: { is_enabled: true, used_credits: 150, monthly_limit: null, utilization: null, currency: 'USD' } });
-  assert.deepEqual(extra.limits, [{ label: 'Usage credits', percent: 0, detail: '$1.50 of no limit' }]);
-  // A get_usage answer often has no server `limits` list, only the documented windows.
-  const documented = accountWith('claude_max', {
+test('claude: usage rows for plans with and without Fable, and usage credits', () => {
+  assert.deepEqual(usageRows({
     five_hour: { utilization: 10, resets_at: '2030-01-01T00:00:00Z' }, seven_day: { utilization: 8, resets_at: null }, seven_day_opus: null,
     model_scoped: [{ display_name: 'Fable', utilization: 4, resets_at: null }],
-  });
-  assert.deepEqual(documented.limits, [
+  }), [
     { label: 'Session', percent: 10, resetsAt: Date.parse('2030-01-01T00:00:00Z') }, { label: 'Weekly', percent: 8, resetsAt: undefined }, { label: 'Weekly · Fable', percent: 4, resetsAt: undefined },
   ]);
-  assert.equal(documented.note, undefined);
-  assert.deepEqual(accountWith('claude_pro', { five_hour: { utilization: 1 }, seven_day: { utilization: 2 }, model_scoped: [] }).limits.map((l) => l.label),
-    ['Session', 'Weekly'], 'no Fable row when model_scoped is empty');
-  const enterprise = accountWith('claude_enterprise', { five_hour: null, seven_day: null, limits: [], spend: { enabled: false } });
-  assert.equal(enterprise.plan, 'Enterprise');
-  assert.deepEqual(enterprise.limits, []);
-  assert.equal(enterprise.note, 'No usage limits reported for this plan.');
+  assert.deepEqual(usageRows({ five_hour: { utilization: 1 }, seven_day: { utilization: 2 }, model_scoped: [] }).map((l) => l.label), ['Session', 'Weekly'], 'no Fable row when the plan has no Fable limit');
+  assert.deepEqual(usageRows({ spend: { enabled: true, percent: 25, used: { amount_minor: 2500, currency: 'USD', exponent: 2 }, limit: { amount_minor: 10000, currency: 'USD', exponent: 2 } } }),
+    [{ label: 'Usage credits', percent: 25, detail: '$25.00 of $100.00' }]);
+  assert.deepEqual(usageRows({ extra_usage: { is_enabled: true, used_credits: 150, monthly_limit: null, utilization: null, currency: 'USD' } }),
+    [{ label: 'Usage credits', percent: 0, detail: '$1.50 of no limit' }]);
+  assert.deepEqual(usageRows({ five_hour: null, seven_day: null, spend: { enabled: false } }), [], 'a plan with no limits');
 });
 
 test('claude: refreshAccount runs claude to fetch usage at most every 5 minutes, and hides that process', async () => {
@@ -167,8 +147,8 @@ process.stdin.on('end', () => process.exit(0));
 `);
   fs.chmodSync(fake, 0o755);
   fs.mkdirSync(path.join(home, '.claude/sessions'), { recursive: true });
-  write(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: {}, cachedUsageUtilization: { fetchedAtMs: NOW - 10 * 60 * 1000 } }));
-  write(path.join(home, 'answer.json'), JSON.stringify({ subscription_type: 'pro', rate_limits_available: true, rate_limits: { limits: [{ kind: 'session', percent: 12 }], model_scoped: [] } }));
+  write(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: {} }));
+  write(path.join(home, 'answer.json'), JSON.stringify({ subscription_type: 'pro', rate_limits_available: true, rate_limits: { five_hour: { utilization: 12 }, model_scoped: [] } }));
   const claude = createClaude({ home, claudeCommands: [path.join(home, 'missing'), fake] });
 
   const fetching = claude.refreshAccount();
@@ -181,8 +161,6 @@ process.stdin.on('end', () => process.exit(0));
   const { plan, limits, note } = claude.account();
   assert.deepEqual({ plan, limits, note }, { plan: 'Pro', limits: [{ label: 'Session', percent: 12, resetsAt: undefined }], note: undefined }, 'the answer beats the saved copy');
 
-  write(path.join(home, '.claude.json'), JSON.stringify({ oauthAccount: {}, cachedUsageUtilization: { fetchedAtMs: NOW } }));
-  assert.equal(createClaude({ home, claudeCommands: [fake] }).refreshAccount(), undefined, 'fresh enough already');
 
   // An API key (or Bedrock, Vertex) login: no account in ~/.claude.json and no plan limits.
   write(path.join(home, '.claude.json'), JSON.stringify({}));
@@ -191,7 +169,6 @@ process.stdin.on('end', () => process.exit(0));
   assert.equal(api.account(), undefined, 'nothing to show before the first answer');
   assert.equal(await api.refreshAccount(), true);
   assert.deepEqual(api.account(), { name: '', email: '', plan: 'API', limits: [], note: 'No plan limits: usage is billed per token.' });
-  assert.equal(await createClaude({ home: tempHome(), claudeCommands: [] }).refreshAccount(), false, 'claude not installed');
 });
 
 // ---- Codex ----

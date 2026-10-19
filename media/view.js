@@ -193,10 +193,6 @@
   document.body.append(footer);
   const accountBody = footer.querySelector('.account-body');
 
-  // Claude Code saves its usage numbers only when it fetches them, and stops trusting them after an hour.
-  const STALE_MS = 60 * 60 * 1000;
-  const stale = (a, now) => a.updatedAt !== undefined && now - a.updatedAt > STALE_MS;
-
   function renderAccounts(accounts, now) {
     footer.hidden = !accounts?.length;
     if (footer.hidden) return;
@@ -204,8 +200,8 @@
       + (a.plan ? `<span class="plan">${esc(a.plan)}</span>` : '') + '</div>'
       + (a.email || a.name ? `<div class="email">${esc(a.email || a.name)}</div>` : '')
       + (a.note ? `<div class="note">${esc(a.note)}</div>` : '')
-      + (stale(a, now) ? `<div class="stale-note">Last updated ${ago(a.updatedAt, now)} ago. Run <code>/usage</code> in Claude Code to refresh.</div>` : '')
-      + a.limits.map((l) => `<div class="limit${stale(a, now) ? ' stale' : l.percent >= 90 ? ' high' : l.percent >= 70 ? ' warn' : ''}">`
+      + (a.error ? `<div class="error-note">${esc(a.error)}</div>` : '')
+      + a.limits.map((l) => `<div class="limit${l.percent >= 90 ? ' high' : l.percent >= 70 ? ' warn' : ''}">`
         + `<div class="limit-row"><span>${esc(l.label)}</span>`
         + (l.detail ? `<span class="reset">${esc(l.detail)}</span>` : '')
         + (l.resetsAt ? `<span class="reset">${l.resetsAt > now ? `Resets ${until(l.resetsAt, now)}` : 'Reset'}</span>` : '')

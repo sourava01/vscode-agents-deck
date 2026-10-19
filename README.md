@@ -19,7 +19,7 @@ The agent you are looking at is outlined in your theme's highlight colour and ma
 
 **Closed Agents** lists this project's recent sessions that are no longer running, leaving out ones in which you sent fewer than 3 messages. Search them by title or reply, and click one to resume it in a new terminal (`claude --resume`, `codex resume` or `pi --session`). Closed Agents keeps a fixed part of the panel, and each section scrolls on its own. Drag the line between the two sections to change the split, or double-click it to reset.
 
-**Accounts** shows each subscription (Claude, Codex) with its plan and usage limits. Only the limits a plan has are shown (a weekly Fable limit only if your plan has one), plus usage credits when they're turned on. API-key logins, and plans with no limits or paid with credits, show a note instead. Limits more than an hour old are greyed out with the time they were last updated.
+**Accounts** shows each subscription (Claude, Codex) with its plan and usage limits. Only the limits a plan has are shown (a weekly Fable limit only if your plan has one), plus usage credits when they're turned on. API-key logins, and plans with no limits or paid with credits, show a note instead. If Claude Code can't give the Claude limits, the card says so.
 
 ## Which sessions are shown
 
@@ -61,11 +61,11 @@ Open the panel from the sparkles icon in the Activity Bar.
 
 ## How it works
 
-The extension reads files the harnesses already keep on your machine. Its one exception: every 5 minutes, while the panel is open, it runs `claude` in SDK mode to ask for your Claude usage limits (no model call, no MCP servers, no saved session), which Claude Code then saves to `~/.claude.json`. It makes no network requests of its own.
+The extension reads files the harnesses already keep on your machine. Its one exception: every 5 minutes, while the panel is open, it runs `claude` in SDK mode to ask for your Claude usage limits (no model call, no MCP servers, no saved session). It makes no network requests of its own.
 
 | Harness | Running sessions | Transcripts and titles | Account and limits |
 | --- | --- | --- | --- |
-| Claude Code | `~/.claude/sessions/` | `~/.claude/projects/` | `~/.claude.json`, refreshed every 5 minutes as above |
+| Claude Code | `~/.claude/sessions/` | `~/.claude/projects/` | account from `~/.claude.json`; limits from `claude` every 5 minutes, as above |
 | Codex CLI | `codex` processes, matched to their transcript by folder and start time | `~/.codex/sessions/`, `~/.codex/session_index.jsonl` | email and plan from the ID token in `~/.codex/auth.json` (no other token is read); limits from the latest session |
 | pi | `pi` processes, matched the same way | `~/.pi/agent/sessions/` | none: pi uses your own provider keys |
 
