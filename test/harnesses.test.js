@@ -110,9 +110,14 @@ test('claude: account, then Loading until Claude Code answers, and an error when
   const claude = createClaude({ home, claudeCommand: path.join(home, 'missing') });
   const who = { name: 'Ada', email: 'ada@example.com', plan: 'Max 20x', limits: [] };
   assert.deepEqual(claude.account(), { ...who, note: 'Loading usage…' });
-  assert.equal(await claude.refreshAccount(), true);
+  await claude.refreshAccount();
   assert.deepEqual(claude.account(), { ...who, error: "Couldn't get usage limits from Claude Code." }, 'claude not installed');
   assert.equal(createClaude({ home: tempHome() }).account(), undefined);
+
+  const throwing = createClaude({ home, claudeCommand: '' }); // spawn throws rather than failing to start
+  await throwing.refreshAccount();
+  assert.deepEqual(throwing.account(), { ...who, error: "Couldn't get usage limits from Claude Code." });
+  assert.notEqual(throwing.refreshAccount(true), undefined, 'a fetch that threw does not block the next one');
 });
 
 test('claude: usage rows for plans with and without Fable, and usage credits', () => {
@@ -155,7 +160,7 @@ process.stdin.on('end', () => process.exit(0));
   assert.equal(claude.refreshAccount(), undefined, 'one fetch at a time');
   while (!fs.existsSync(path.join(home, '.claude/sessions/helper.json'))) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.deepEqual(claude.live(), [], 'the helper, like any claude -p run, is not an agent');
-  assert.equal(await fetching, true);
+  await fetching;
   assert.match(fs.readFileSync(log, 'utf8'), /--no-session-persistence/);
   assert.equal(claude.refreshAccount(), undefined, 'tried less than 5 minutes ago');
   const { plan, limits, note } = claude.account();
@@ -167,7 +172,7 @@ process.stdin.on('end', () => process.exit(0));
   write(path.join(home, 'answer.json'), JSON.stringify({ subscription_type: null, rate_limits_available: false, rate_limits: null }));
   const api = createClaude({ home, claudeCommand: fake });
   assert.equal(api.account(), undefined, 'nothing to show before the first answer');
-  assert.equal(await api.refreshAccount(), true);
+  await api.refreshAccount();
   assert.deepEqual(api.account(), { name: '', email: '', plan: 'API', limits: [], note: 'No plan limits: usage is billed per token.' });
 });
 

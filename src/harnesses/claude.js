@@ -225,17 +225,16 @@ function createClaude({ home, claudeCommand = 'claude' }) {
 
     /**
      * Has Claude Code fetch the usage limits if they are more than 5 minutes old (an hour for a login without plan
-     * limits), or now if `force`. Returns a promise of whether it answered, or undefined when no fetch was needed.
+     * limits), or now if `force`. Returns a promise that settles once Claude Code has answered or failed, or undefined
+     * when no fetch was needed.
      */
     refreshAccount(force = false) {
-      const now = Date.now();
       const every = usage?.answer?.rate_limits_available === false ? USAGE_RETRY_NO_LIMITS_MS : USAGE_REFRESH_MS;
-      if (usageFetch || (!force && now - usageTriedAt < every)) return undefined;
-      usageTriedAt = now;
-      usageFetch = fetchUsage(claudeCommand).then((answer) => {
+      if (usageFetch || (!force && Date.now() - usageTriedAt < every)) return undefined;
+      usageTriedAt = Date.now();
+      // A fetch that throws (spawn can, when out of file handles) counts as failed, like one that gets no answer.
+      usageFetch = fetchUsage(claudeCommand).catch(() => undefined).then((answer) => {
         usage = answer ? { answer } : { failed: true };
-        return true;
-      }).finally(() => {
         usageFetch = undefined;
       });
       return usageFetch;
