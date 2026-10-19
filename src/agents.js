@@ -17,7 +17,8 @@ function searchClosed(sessions, query) {
 }
 
 /**
- * Marks agents that went idle since the previous call as "completed", until you view them.
+ * Marks agents that went idle since the previous call as "completed", until you view them. An agent missing from a
+ * call is forgotten, so one resumed later starts afresh.
  * ponytail: a whole turn that starts and ends between two calls isn't caught.
  */
 class CompletionTracker {
@@ -25,11 +26,13 @@ class CompletionTracker {
   #completed = new Set();
 
   apply(agents) {
+    const lastStatus = this.#lastStatus;
+    this.#lastStatus = new Map(agents.map((a) => [a.key, a.status]));
+    for (const key of this.#completed) if (!this.#lastStatus.has(key)) this.#completed.delete(key);
     return agents.map((agent) => {
       const { key, status, viewing } = agent;
       if (viewing || status !== 'idle') this.#completed.delete(key);
-      else if ((this.#lastStatus.get(key) ?? 'idle') !== 'idle') this.#completed.add(key);
-      this.#lastStatus.set(key, status);
+      else if ((lastStatus.get(key) ?? 'idle') !== 'idle') this.#completed.add(key);
       return this.#completed.has(key) ? { ...agent, status: 'completed' } : agent;
     });
   }

@@ -109,6 +109,9 @@ test('CompletionTracker: completed after a turn ends, idle once viewed', () => {
     .map(([status, viewing]) => step(status, viewing));
   assert.deepEqual(seen, ['busy', 'completed', 'completed', 'idle', 'idle', 'busy', 'idle', 'waiting', 'completed']);
   assert.equal(tracker.apply([{ key: 'b', status: 'idle' }])[0].status, 'idle', 'an agent first seen idle stays idle');
+  tracker.apply([{ key: 'c', status: 'busy' }]);
+  tracker.apply([]);
+  assert.equal(tracker.apply([{ key: 'c', status: 'idle' }])[0].status, 'idle', 'closed while busy, resumed idle: not completed');
 });
 
 test('MoveTracker: marks sessions that just closed or resumed, for a while', () => {
