@@ -192,6 +192,7 @@
   footer.querySelector('.count').remove();
   document.body.append(footer);
   const accountBody = footer.querySelector('.account-body');
+  let accountHtml;
 
   function renderAccounts(accounts, now) {
     footer.hidden = !accounts?.length;
@@ -208,7 +209,7 @@
         + `<span class="percent">${Math.round(l.percent)}%</span></div>`
         + `<progress class="bar" max="100" value="${l.percent}"></progress></div>`).join('')
       + '</div>').join('');
-    if (accountBody.dataset.html !== html) accountBody.innerHTML = accountBody.dataset.html = html;
+    if (accountHtml !== html) accountBody.innerHTML = accountHtml = html;
   }
 
   window.addEventListener('message', ({ data }) => {

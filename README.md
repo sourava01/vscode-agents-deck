@@ -86,7 +86,7 @@ npm test          # runs the tests with Node's built-in test runner
 npm run package   # builds the .vsix with @vscode/vsce
 ```
 
-Each harness is one file in `src/harnesses/` with the same interface (`live`, `closed`, `account`), so adding another is a one-file change.
+Each harness is one file in `src/harnesses/` with the same interface (`live`, `closed`, `account`). Adding another means adding its file, listing it in `src/extension.js` and `src/config.js`, and adding its `agentsDeck.harnesses.*` setting to `package.json`.
 
 ## License
 

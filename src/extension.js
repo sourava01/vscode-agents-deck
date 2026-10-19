@@ -80,7 +80,7 @@ class AgentsView {
 
   /**
    * Re-reads active agents; closed sessions only every 30 seconds, unless `includeClosed` or an agent started or
-   * stopped; and usage limits only every 5 minutes, unless `refetchUsage`.
+   * stopped; and Claude's usage limits only every 5 minutes, unless `refetchUsage`.
    */
   refresh(includeClosed = false, refetchUsage = false) {
     this.#refreshing = this.#refreshing.then(() => this.#refresh(includeClosed, refetchUsage)).catch(() => {});
